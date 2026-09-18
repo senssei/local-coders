@@ -1,26 +1,26 @@
 ---
-name: local-coder
+name: ollama-coder
 description: Offload code generation, unit test creation, architecture reviews, and refactoring to local Ollama LLMs (Qwen 2.5 Coder, Llama 3.1) running on Apple Silicon Metal or NVIDIA RTX with zero token cost.
 ---
 
-# Local Coder Skill
+# Ollama Coder Skill
 
 Enables AI agents and subagents to offload programming routines, unit test authoring, security reviews, and refactoring to local LLMs via Ollama. It leverages on-device hardware acceleration (macOS Apple Silicon Metal Unified Memory or Linux/WSL NVIDIA RTX CUDA) with zero cloud token cost, sub-second latency, and automated self-healing syntax validation.
 
 ## Quickstart
 
-Use `ask_local.py` located in `.agents/skills/local-coder/scripts/ask_local.py` or invoke through global PATH when installed.
+Use `ask_local.py` located in `.agents/skills/ollama-coder/scripts/ask_local.py` or invoke through global PATH when installed.
 
 ### 1. Code Generation (`code`)
 Generate implementations, classes, algorithms, or utility modules:
 ```bash
-python3 .agents/skills/local-coder/scripts/ask_local.py code \
+python3 .agents/skills/ollama-coder/scripts/ask_local.py code \
   --task "Implement a thread-safe sliding window rate limiter" \
   --output src/rate_limiter.py
 ```
 Inject context files:
 ```bash
-python3 .agents/skills/local-coder/scripts/ask_local.py code \
+python3 .agents/skills/ollama-coder/scripts/ask_local.py code \
   --task "Add an async Redis cache backend implementing this interface" \
   --files src/cache_interface.py \
   --output src/redis_cache.py
@@ -29,7 +29,7 @@ python3 .agents/skills/local-coder/scripts/ask_local.py code \
 ### 2. Automated Test Generation (`test`)
 Create comprehensive unit test suites with boundary checking and mocks:
 ```bash
-python3 .agents/skills/local-coder/scripts/ask_local.py test \
+python3 .agents/skills/ollama-coder/scripts/ask_local.py test \
   --file src/rate_limiter.py \
   --framework pytest \
   --output tests/test_rate_limiter.py
@@ -38,7 +38,7 @@ python3 .agents/skills/local-coder/scripts/ask_local.py test \
 ### 3. Code & Architecture Review (`review`)
 Audit code for race conditions, security vulnerabilities, edge cases, and performance bottlenecks:
 ```bash
-python3 .agents/skills/local-coder/scripts/ask_local.py review \
+python3 .agents/skills/ollama-coder/scripts/ask_local.py review \
   --file src/server.py \
   --focus "race conditions, unhandled exceptions, and memory leaks" \
   --output reviews/server_audit.md
@@ -47,7 +47,7 @@ python3 .agents/skills/local-coder/scripts/ask_local.py review \
 ### 4. Refactoring & Typing (`refactor`)
 Add strict type hints, PEP 257 docstrings, and clean architecture patterns:
 ```bash
-python3 .agents/skills/local-coder/scripts/ask_local.py refactor \
+python3 .agents/skills/ollama-coder/scripts/ask_local.py refactor \
   --file src/legacy_util.py \
   --type-hints \
   --docstrings \
@@ -76,7 +76,7 @@ All code generation subcommands (`code`, `test`, `refactor`) feature an automate
 
 Disable validation if generating non-Python code:
 ```bash
-python3 .agents/skills/local-coder/scripts/ask_local.py code \
+python3 .agents/skills/ollama-coder/scripts/ask_local.py code \
   --task "Write a bash deployment script" \
   --no-heal \
   --output deploy.sh

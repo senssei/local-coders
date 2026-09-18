@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Root Global Skill Installer for Antigravity: local-coder
-# Synchronizes local-coder to ~/.gemini/config/skills/local-coder
+# Root Global Skill Installer for Antigravity: ollama-coder
+# Synchronizes ollama-coder to ~/.gemini/config/skills/ollama-coder
 # and registers ollama-local into ~/.gemini/config/mcp_config.json
 # =============================================================================
 set -e
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GEMINI_CONFIG_DIR="${HOME}/.gemini/config"
-TARGET_SKILL_DIR="${GEMINI_CONFIG_DIR}/skills/local-coder"
+TARGET_SKILL_DIR="${GEMINI_CONFIG_DIR}/skills/ollama-coder"
+LEGACY_SKILL_DIR="${GEMINI_CONFIG_DIR}/skills/local-coder"
 MCP_CONFIG_FILE="${GEMINI_CONFIG_DIR}/mcp_config.json"
 BIN_DIR="${HOME}/.local/bin"
 
 echo "========================================================="
-echo " ⚡ Antigravity Global Skill Installer: local-coder"
+echo " ⚡ Antigravity Global Skill Installer: ollama-coder"
 echo "========================================================="
 
 # 1. Health check Ollama
@@ -28,10 +29,13 @@ fi
 # 2. Deploy Skill Files
 echo "[2/5] Deploying skill files to ${TARGET_SKILL_DIR}..."
 mkdir -p "${TARGET_SKILL_DIR}"
-cp -r "${REPO_ROOT}/.agents/skills/local-coder/"* "${TARGET_SKILL_DIR}/"
+cp -r "${REPO_ROOT}/.agents/skills/ollama-coder/"* "${TARGET_SKILL_DIR}/"
 cp "${REPO_ROOT}/ollama_mcp_server.py" "${TARGET_SKILL_DIR}/"
 chmod +x "${TARGET_SKILL_DIR}/scripts/ask_local.py"
 chmod +x "${TARGET_SKILL_DIR}/ollama_mcp_server.py"
+
+# Maintain legacy symlink for backward compatibility
+ln -sfn "${TARGET_SKILL_DIR}" "${LEGACY_SKILL_DIR}"
 echo "  ✅ Skill tree deployed."
 
 # 3. Configure ~/.gemini/config/mcp_config.json
@@ -82,7 +86,7 @@ python3 "${TARGET_SKILL_DIR}/scripts/ask_local.py" --help >/dev/null 2>&1
 echo "  ✅ CLI verification passed."
 
 echo "========================================================="
-echo " 🎉 Successfully installed 'local-coder' globally!"
+echo " 🎉 Successfully installed 'ollama-coder' globally!"
 echo " Location: ${TARGET_SKILL_DIR}"
 echo " MCP:      ${MCP_CONFIG_FILE} (server: 'ollama-local')"
 echo " CLI:      ${BIN_DIR}/ask_local.py"

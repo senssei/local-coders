@@ -1,4 +1,4 @@
-"""Unit tests for the local-coder ask_local utility script."""
+"""Unit tests for the ollama-coder ask_local utility script."""
 
 import os
 import sys
@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 # Add skill script directory to sys.path
-SKILL_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".agents", "skills", "local-coder", "scripts"))
+SKILL_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".agents", "skills", "ollama-coder", "scripts"))
 if SKILL_DIR not in sys.path:
     sys.path.insert(0, SKILL_DIR)
 

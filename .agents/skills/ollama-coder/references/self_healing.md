@@ -1,6 +1,6 @@
 # Automated Self-Healing & Compiler Feedback Loops
 
-This reference describes the architecture and operation of the self-healing code validation engine in `local-coder`.
+This reference describes the architecture and operation of the self-healing code validation engine in `ollama-coder`.
 
 ---
 
@@ -11,7 +11,7 @@ While modern 7B parameter code models (such as `qwen2.5-coder:7b`) exhibit high 
 - Misaligned indentation (IndentationError).
 - Outdated or invalid syntax (e.g. invalid type syntax or illegal keyword usage).
 
-Traditional agent setups fail silently or crash later during execution. The `local-coder` skill intercepts output before saving it to disk or presenting it to the agent, providing an immediate feedback loop.
+Traditional agent setups fail silently or crash later during execution. The `ollama-coder` skill intercepts output before saving it to disk or presenting it to the agent, providing an immediate feedback loop.
 
 ---
 
@@ -69,7 +69,7 @@ Self-healing is enabled by default for `code`, `test`, and `refactor` subcommand
 If generating non-Python source code (e.g., Shell scripts, SQL, JSON, YAML, Go, Rust), pass `--no-heal`:
 
 ```bash
-python3 .agents/skills/local-coder/scripts/ask_local.py code \
+python3 .agents/skills/ollama-coder/scripts/ask_local.py code \
   --task "Write an nginx configuration for reverse proxy" \
   --no-heal \
   --output nginx.conf

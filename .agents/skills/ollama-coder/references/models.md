@@ -6,7 +6,7 @@ This guide details recommended local LLMs for coding agents, their resource foot
 
 ## 1. Supported Model Profiles
 
-The `local-coder` skill maps high-level profiles to specific Ollama tags:
+The `ollama-coder` skill maps high-level profiles to specific Ollama tags:
 
 | Profile | Ollama Model Tag | Parameters | Quantization | Context Window | Best For |
 |---|---|---|---|---|---|
