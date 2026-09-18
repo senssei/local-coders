@@ -35,9 +35,16 @@ def call_ollama(prompt: str, model: str = DEFAULT_MODEL, system: Optional[str] =
         resp = data.get("response", "")
         # append telemetry summary
         eval_count = data.get("eval_count", 0)
+        prompt_eval_count = data.get("prompt_eval_count", 0)
         eval_dur_ns = data.get("eval_duration", 0)
         tok_s = (eval_count / (eval_dur_ns / 1e9)) if eval_dur_ns > 0 else 0.0
-        return f"{resp}\n\n[Local LLM Stats: {model} @ {tok_s:.1f} tok/s, {eval_count} tokens]"
+        total_saved = eval_count + prompt_eval_count
+        cost_saved = (prompt_eval_count * 0.000003) + (eval_count * 0.000015)
+        return (
+            f"{resp}\n\n"
+            f"[Local LLM Stats: {model} @ {tok_s:.1f} tok/s, {eval_count} tokens generated | "
+            f"⚡ Saved {total_saved:,} cloud tokens (~${cost_saved:.4f})]"
+        )
     except Exception as e:
         return f"Error calling local Ollama model {model}: {e}"
 

@@ -97,16 +97,35 @@ def query_ollama(
     elapsed = time.perf_counter() - start_t
 
     eval_count = data.get("eval_count", 0)
+    prompt_eval_count = data.get("prompt_eval_count", 0)
     eval_dur_ns = data.get("eval_duration", 0)
     tok_s = (eval_count / (eval_dur_ns / 1e9)) if eval_dur_ns > 0 else (eval_count / elapsed if elapsed > 0 else 0.0)
+
+    # Cloud token savings calculation (baseline: Claude 3.5 Sonnet / GPT-4o: $3/M prompt, $15/M completion)
+    tokens_saved = eval_count + prompt_eval_count
+    cost_saved_usd = (prompt_eval_count * 0.000003) + (eval_count * 0.000015)
 
     telemetry = {
         "model": model,
         "eval_count": eval_count,
+        "prompt_eval_count": prompt_eval_count,
+        "tokens_saved": tokens_saved,
+        "cost_saved_usd": round(cost_saved_usd, 5),
         "tok_s": round(tok_s, 1),
         "total_sec": round(elapsed, 2),
     }
     return data.get("response", ""), telemetry
+
+
+def format_telemetry_summary(telem: Dict[str, Any]) -> str:
+    """Format single-line summary with model, speed, tokens, and cloud savings."""
+    saved = telem.get("tokens_saved", telem.get("eval_count", 0))
+    cost = telem.get("cost_saved_usd", 0.0)
+    tot_sec_str = f" in {telem['total_sec']}s" if "total_sec" in telem else ""
+    return (
+        f"[{telem['model']} | {telem.get('tok_s', 0.0)} tok/s | {telem.get('eval_count', 0)} tokens{tot_sec_str} | "
+        f"⚡ Saved {saved:,} cloud tokens (~${cost:.4f})]\n"
+    )
 
 
 def self_healing_query(
@@ -141,7 +160,14 @@ def self_healing_query(
         retry_code = extract_clean_code(retry_raw)
         retry_valid, retry_err = validate_python_code(retry_code)
 
-        telemetry["eval_count"] += retry_telem["eval_count"]
+        telemetry["eval_count"] += retry_telem.get("eval_count", 0)
+        telemetry["prompt_eval_count"] = telemetry.get("prompt_eval_count", 0) + retry_telem.get("prompt_eval_count", 0)
+        telemetry["tokens_saved"] = telemetry.get("tokens_saved", 0) + retry_telem.get("tokens_saved", retry_telem.get("eval_count", 0))
+        telemetry["cost_saved_usd"] = round(
+            telemetry.get("cost_saved_usd", 0.0) + retry_telem.get("cost_saved_usd", 0.0), 5
+        )
+        if "total_sec" in telemetry and "total_sec" in retry_telem:
+            telemetry["total_sec"] = round(telemetry["total_sec"] + retry_telem["total_sec"], 2)
         if retry_valid:
             sys.stderr.write("  [Self-Healing] Successfully healed syntax error!\n")
             return retry_code, telemetry
@@ -191,7 +217,7 @@ def handle_code(args):
         auto_heal=args.auto_heal,
     )
 
-    sys.stderr.write(f"[{telem['model']} | {telem['tok_s']} tok/s | {telem['eval_count']} tokens in {telem['total_sec']}s]\n")
+    sys.stderr.write(format_telemetry_summary(telem))
 
     if args.output:
         os.makedirs(os.path.dirname(args.output), exist_ok=True) if os.path.dirname(args.output) else None
@@ -237,7 +263,7 @@ def handle_test(args):
         auto_heal=args.auto_heal,
     )
 
-    sys.stderr.write(f"[{telem['model']} | {telem['tok_s']} tok/s | {telem['eval_count']} tokens]\n")
+    sys.stderr.write(format_telemetry_summary(telem))
 
     if args.output:
         os.makedirs(os.path.dirname(args.output), exist_ok=True) if os.path.dirname(args.output) else None
@@ -275,8 +301,8 @@ def handle_review(args):
         temperature=args.temperature,
     )
 
-    sys.stderr.write(f"[{telem['model']} | {telem['tok_s']} tok/s | {telem['eval_count']} tokens]\n")
-
+    sys.stderr.write(format_telemetry_summary(telem))
+ 
     if getattr(args, "output", None):
         with open(args.output, "w", encoding="utf-8") as f:
             f.write(raw_review + "\n")
@@ -322,7 +348,7 @@ def handle_refactor(args):
         auto_heal=args.auto_heal,
     )
 
-    sys.stderr.write(f"[{telem['model']} | {telem['tok_s']} tok/s | {telem['eval_count']} tokens]\n")
+    sys.stderr.write(format_telemetry_summary(telem))
 
     if getattr(args, "output", None):
         with open(args.output, "w", encoding="utf-8") as f:

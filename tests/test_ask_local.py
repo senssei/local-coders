@@ -112,6 +112,25 @@ class TestSelfHealingQuery(unittest.TestCase):
         self.assertEqual(code, "def hello(\n    return 'world'")
         self.assertEqual(mock_query.call_count, 1)
 
+    def test_format_telemetry_summary(self):
+        from ask_local import format_telemetry_summary
+        telem = {
+            "model": "qwen2.5-coder:7b",
+            "tok_s": 42.5,
+            "eval_count": 100,
+            "prompt_eval_count": 50,
+            "tokens_saved": 150,
+            "cost_saved_usd": 0.00165,
+            "total_sec": 2.35,
+        }
+        summary = format_telemetry_summary(telem)
+        self.assertIn("qwen2.5-coder:7b", summary)
+        self.assertIn("42.5 tok/s", summary)
+        self.assertIn("100 tokens", summary)
+        self.assertIn("150 cloud tokens", summary)
+        self.assertIn("$0.0016", summary)
+
 
 if __name__ == "__main__":
     unittest.main()
+
