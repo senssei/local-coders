@@ -72,4 +72,4 @@ Agents have access to native MCP tools:
 1. **Default Local Model**: The recommended default model for code generation is **`qwen2.5-coder:7b`**.
 2. **Self-Healing Loop**: The skill automatically verifies syntax via AST parsing and recompiles if needed before saving files.
 3. **Verification**: Always run unit tests (`python3 -m unittest ...`) prior to concluding any task.
-4. **Autonomy (Always-Proceed)**: Subagents operate in autonomous mode with write and execution permissions enabled (`enable_write_tools: true`, `enable_mcp_tools: true`).
+4. **Autonomy (Always-Proceed)**: Subagents and delegated worker processes operate in autonomous mode with write and execution permissions enabled.
