@@ -10,7 +10,7 @@ This repository operates under an autonomous development policy (**always-procee
 ---
 
 ## 1. 🛡 Workspace Boundaries & Confinement
-- **Project Confinement**: All file creation, reading, and editing operations must remain strictly inside the repository root (`/home/senssei/02-ollama-loadtest`).
+- **Project Confinement**: All file creation, reading, and editing operations must remain strictly inside the workspace repository root directory.
 - **External Path Guardrails**: Do not modify files in system directories (`/etc`, `/usr`, `/var`), home configuration outside project scope, or parent directories without explicit instruction.
 - **Artifacts Directory**: Use the designated app data directory for conversation artifacts and temporary scratch files.
 
