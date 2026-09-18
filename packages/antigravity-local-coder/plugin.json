@@ -1,0 +1,5 @@
+{
+  "name": "local-coder",
+  "version": "1.0.0",
+  "description": "Zero-token-cost local LLM code generation, testing, review, and refactoring via Ollama on Apple Silicon & NVIDIA RTX."
+}
