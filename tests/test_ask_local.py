@@ -3,19 +3,21 @@
 import os
 import sys
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 # Add skill script directory to sys.path
-SKILL_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".agents", "skills", "ollama-coder", "scripts"))
+SKILL_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", ".agents", "skills", "ollama-coder", "scripts")
+)
 if SKILL_DIR not in sys.path:
     sys.path.insert(0, SKILL_DIR)
 
 from ask_local import (
+    DEFAULT_PROFILES,
     extract_clean_code,
-    validate_python_code,
     resolve_model,
     self_healing_query,
-    DEFAULT_PROFILES,
+    validate_python_code,
 )
 
 
@@ -114,6 +116,7 @@ class TestSelfHealingQuery(unittest.TestCase):
 
     def test_format_telemetry_summary(self):
         from ask_local import format_telemetry_summary
+
         telem = {
             "model": "qwen2.5-coder:7b",
             "tok_s": 42.5,
@@ -133,4 +136,3 @@ class TestSelfHealingQuery(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

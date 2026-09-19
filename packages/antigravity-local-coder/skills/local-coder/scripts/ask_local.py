@@ -6,14 +6,14 @@ Supports subcommands (code, test, review, refactor), smart model profiles, and s
 
 import argparse
 import ast
-import json
 import os
 import py_compile
 import re
 import sys
 import tempfile
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
 import requests
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
@@ -25,7 +25,7 @@ DEFAULT_PROFILES = {
 }
 
 
-def resolve_model(profile: Optional[str], model: Optional[str]) -> str:
+def resolve_model(profile: str | None, model: str | None) -> str:
     """Resolve model name from profile or explicit model parameter."""
     if model:
         return model
@@ -46,7 +46,7 @@ def extract_clean_code(text: str) -> str:
     return text.strip()
 
 
-def validate_python_code(code: str) -> Tuple[bool, str]:
+def validate_python_code(code: str) -> tuple[bool, str]:
     """Validate Python code syntax using ast.parse and py_compile."""
     try:
         ast.parse(code)
@@ -72,11 +72,11 @@ def validate_python_code(code: str) -> Tuple[bool, str]:
 def query_ollama(
     prompt: str,
     model: str,
-    system: Optional[str] = None,
+    system: str | None = None,
     temperature: float = 0.1,
     num_ctx: int = 4096,
     timeout_sec: int = 180,
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     """Send generation request to Ollama and return (response_text, telemetry)."""
     payload = {
         "model": model,
@@ -117,7 +117,7 @@ def query_ollama(
     return data.get("response", ""), telemetry
 
 
-def format_telemetry_summary(telem: Dict[str, Any]) -> str:
+def format_telemetry_summary(telem: dict[str, Any]) -> str:
     """Format single-line summary with model, speed, tokens, and cloud savings."""
     saved = telem.get("tokens_saved", telem.get("eval_count", 0))
     cost = telem.get("cost_saved_usd", 0.0)
@@ -131,11 +131,11 @@ def format_telemetry_summary(telem: Dict[str, Any]) -> str:
 def self_healing_query(
     prompt: str,
     model: str,
-    system: Optional[str] = None,
+    system: str | None = None,
     temperature: float = 0.1,
     auto_heal: bool = True,
     max_retries: int = 2,
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     """Query model and perform automated self-healing syntax correction if needed."""
     raw_response, telemetry = query_ollama(prompt, model, system=system, temperature=temperature)
     code = extract_clean_code(raw_response)
@@ -149,7 +149,9 @@ def self_healing_query(
 
     while not valid and retries < max_retries:
         retries += 1
-        sys.stderr.write(f"  [Self-Healing] Syntax error detected ({err_msg}). Retrying with local LLM ({retries}/{max_retries})...\n")
+        sys.stderr.write(
+            f"  [Self-Healing] Syntax error detected ({err_msg}). Retrying with local LLM ({retries}/{max_retries})...\n"
+        )
         fix_prompt = (
             f"The following generated Python code contains a syntax error:\n"
             f"ERROR: {err_msg}\n\n"
@@ -162,7 +164,9 @@ def self_healing_query(
 
         telemetry["eval_count"] += retry_telem.get("eval_count", 0)
         telemetry["prompt_eval_count"] = telemetry.get("prompt_eval_count", 0) + retry_telem.get("prompt_eval_count", 0)
-        telemetry["tokens_saved"] = telemetry.get("tokens_saved", 0) + retry_telem.get("tokens_saved", retry_telem.get("eval_count", 0))
+        telemetry["tokens_saved"] = telemetry.get("tokens_saved", 0) + retry_telem.get(
+            "tokens_saved", retry_telem.get("eval_count", 0)
+        )
         telemetry["cost_saved_usd"] = round(
             telemetry.get("cost_saved_usd", 0.0) + retry_telem.get("cost_saved_usd", 0.0), 5
         )
@@ -177,13 +181,13 @@ def self_healing_query(
     return code, telemetry
 
 
-def read_files_context(file_paths: List[str]) -> str:
+def read_files_context(file_paths: list[str]) -> str:
     """Read file paths and format them into markdown code context."""
     snippets = []
     for fp in file_paths:
         if os.path.exists(fp):
             try:
-                with open(fp, "r", encoding="utf-8") as f:
+                with open(fp, encoding="utf-8") as f:
                     content = f.read()
                 snippets.append(f"# File: {fp}\n{content}")
             except Exception as e:
@@ -197,11 +201,14 @@ def read_files_context(file_paths: List[str]) -> str:
 # Subcommand Handlers
 # -----------------------------------------------------------------------------
 
+
 def handle_code(args):
     """Generate functions, classes, or modules."""
     model = resolve_model(getattr(args, "profile", None), getattr(args, "model", None))
     context = read_files_context(getattr(args, "files", []) or [])
-    full_prompt = f"{context}Task:\n{args.task}\n\nOutput only production-ready Python code wrapped in ```python ... ```."
+    full_prompt = (
+        f"{context}Task:\n{args.task}\n\nOutput only production-ready Python code wrapped in ```python ... ```."
+    )
 
     system = (
         "You are an expert pair-programming AI running locally on the user's hardware accelerator. "
@@ -235,7 +242,7 @@ def handle_test(args):
         sys.stderr.write(f"Error: Target file not found: {args.file}\n")
         sys.exit(1)
 
-    with open(args.file, "r", encoding="utf-8") as f:
+    with open(args.file, encoding="utf-8") as f:
         src_code = f.read()
 
     framework = getattr(args, "framework", "pytest")
@@ -281,7 +288,7 @@ def handle_review(args):
         sys.stderr.write(f"Error: File not found: {args.file}\n")
         sys.exit(1)
 
-    with open(args.file, "r", encoding="utf-8") as f:
+    with open(args.file, encoding="utf-8") as f:
         code_content = f.read()
 
     focus = getattr(args, "focus", "bugs, security, edge cases, and performance")
@@ -302,7 +309,7 @@ def handle_review(args):
     )
 
     sys.stderr.write(format_telemetry_summary(telem))
- 
+
     if getattr(args, "output", None):
         with open(args.output, "w", encoding="utf-8") as f:
             f.write(raw_review + "\n")
@@ -318,7 +325,7 @@ def handle_refactor(args):
         sys.stderr.write(f"Error: File not found: {args.file}\n")
         sys.exit(1)
 
-    with open(args.file, "r", encoding="utf-8") as f:
+    with open(args.file, encoding="utf-8") as f:
         code_content = f.read()
 
     directives = []
@@ -335,7 +342,7 @@ def handle_refactor(args):
     full_prompt = (
         f"Original Code ({args.file}):\n```python\n{code_content}\n```\n\n"
         f"Refactoring Goals:\n" + "\n".join(f"- {d}" for d in directives) + "\n\n"
-        f"Output ONLY the complete refactored Python code inside ```python ... ```."
+        "Output ONLY the complete refactored Python code inside ```python ... ```."
     )
 
     system = "You are an expert Python engineer specializing in clean code and modern type systems."
@@ -362,6 +369,7 @@ def handle_refactor(args):
 # Main Parser
 # -----------------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Local Coder CLI - Offload coding, testing, and review to local Ollama models with zero token cost."
@@ -371,10 +379,14 @@ def main():
     # Common options helper
     def add_common_args(p):
         p.add_argument("--model", help="Explicit Ollama model name (e.g. qwen2.5-coder:7b)")
-        p.add_argument("--profile", choices=["fast", "coding", "reasoning"], default="coding", help="Model profile preset")
+        p.add_argument(
+            "--profile", choices=["fast", "coding", "reasoning"], default="coding", help="Model profile preset"
+        )
         p.add_argument("--temperature", type=float, default=0.1, help="Sampling temperature")
         p.add_argument("--output", "-o", help="Path to write output file")
-        p.add_argument("--auto-heal", action="store_true", default=True, help="Automatically validate and heal syntax errors")
+        p.add_argument(
+            "--auto-heal", action="store_true", default=True, help="Automatically validate and heal syntax errors"
+        )
         p.add_argument("--no-heal", action="store_false", dest="auto_heal", help="Disable automated syntax healing")
 
     # 1. 'code' subcommand
@@ -395,7 +407,9 @@ def main():
     p_review.add_argument("--file", required=True, help="File to review")
     p_review.add_argument("--focus", default="bugs, race conditions, edge cases, security", help="Focus areas")
     p_review.add_argument("--model", help="Ollama model name (default: reasoning profile)")
-    p_review.add_argument("--profile", choices=["fast", "coding", "reasoning"], default="reasoning", help="Model profile")
+    p_review.add_argument(
+        "--profile", choices=["fast", "coding", "reasoning"], default="reasoning", help="Model profile"
+    )
     p_review.add_argument("--temperature", type=float, default=0.1, help="Sampling temperature")
     p_review.add_argument("--output", "-o", help="Path to write review markdown")
 

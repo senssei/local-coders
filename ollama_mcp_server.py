@@ -7,14 +7,15 @@ Exposes local models (like qwen2.5-coder:7b on RTX 5070) as tools for Antigravit
 import json
 import os
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import requests
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "qwen2.5-coder:7b")
 
 
-def call_ollama(prompt: str, model: str = DEFAULT_MODEL, system: Optional[str] = None, options: Optional[Dict] = None) -> str:
+def call_ollama(prompt: str, model: str = DEFAULT_MODEL, system: str | None = None, options: dict | None = None) -> str:
     """Send generation request to Ollama and return text output."""
     payload = {
         "model": model,
@@ -49,7 +50,7 @@ def call_ollama(prompt: str, model: str = DEFAULT_MODEL, system: Optional[str] =
         return f"Error calling local Ollama model {model}: {e}"
 
 
-def handle_list_tools() -> List[Dict[str, Any]]:
+def handle_list_tools() -> list[dict[str, Any]]:
     """Return list of tools exposed by this MCP server."""
     return [
         {
@@ -108,7 +109,7 @@ def handle_list_tools() -> List[Dict[str, Any]]:
     ]
 
 
-def handle_tool_call(name: str, args: Dict[str, Any]) -> str:
+def handle_tool_call(name: str, args: dict[str, Any]) -> str:
     """Execute tool and return text content."""
     if name == "ask_local_coder":
         task = args.get("task", "")

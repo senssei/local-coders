@@ -10,10 +10,13 @@ import json
 import os
 import py_compile
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
 import requests
 
 DAEMON_JSON_PATH = os.path.expanduser("~/.foundry/daemon.json")
@@ -33,7 +36,7 @@ def discover_foundry_url() -> str:
 
     if os.path.exists(DAEMON_JSON_PATH):
         try:
-            with open(DAEMON_JSON_PATH, "r", encoding="utf-8") as f:
+            with open(DAEMON_JSON_PATH, encoding="utf-8") as f:
                 data = json.load(f)
                 web_urls = data.get("web_urls", [])
                 if web_urls and isinstance(web_urls, list) and len(web_urls) > 0:
@@ -48,7 +51,7 @@ def discover_foundry_url() -> str:
     return "http://localhost:5272/v1"
 
 
-def get_available_models(base_url: str) -> List[str]:
+def get_available_models(base_url: str) -> list[str]:
     """Query available models from Foundry."""
     try:
         r = requests.get(f"{base_url}/models", timeout=4)
@@ -60,9 +63,9 @@ def get_available_models(base_url: str) -> List[str]:
     return []
 
 
-def resolve_model(profile: Optional[str], model: Optional[str], base_url: str) -> str:
+def resolve_model(profile: str | None, model: str | None, base_url: str) -> str:
     """Resolve model name from explicit argument, profile, or first available model."""
-    alias_map: Dict[str, str] = {}
+    alias_map: dict[str, str] = {}
     try:
         r = requests.get(f"{base_url}/models", timeout=3)
         if r.status_code == 200:
@@ -109,7 +112,7 @@ def extract_clean_code(text: str) -> str:
     return text.strip()
 
 
-def validate_python_code(code: str) -> Tuple[bool, str]:
+def validate_python_code(code: str) -> tuple[bool, str]:
     """Validate Python code syntax using ast.parse and py_compile."""
     try:
         ast.parse(code)
@@ -135,11 +138,11 @@ def query_foundry(
     prompt: str,
     model: str,
     base_url: str,
-    system: Optional[str] = None,
+    system: str | None = None,
     temperature: float = 0.1,
     max_tokens: int = 2048,
     timeout_sec: int = 180,
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     """Send chat completion request to Foundry Local and return (response_text, telemetry)."""
     messages = []
     if system:
@@ -164,15 +167,13 @@ def query_foundry(
 
     # Autonomous model loading if not yet loaded in memory
     if r.status_code == 400 and "not loaded" in r.text.lower():
-        import shutil
         foundry_bin = shutil.which("foundry")
         if foundry_bin:
             sys.stderr.write(f"  [Foundry] Model '{model}' not loaded in memory. Loading via CLI...\n")
             sys.stderr.flush()
             load_res = subprocess.run(
                 [foundry_bin, "model", "load", model],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 text=True,
                 timeout=180,
             )
@@ -213,7 +214,7 @@ def query_foundry(
     return reply, telemetry
 
 
-def format_telemetry_summary(telem: Dict[str, Any]) -> str:
+def format_telemetry_summary(telem: dict[str, Any]) -> str:
     """Format single-line telemetry string."""
     return (
         f"[{telem['runtime']}: {telem['model']} | "
@@ -227,12 +228,12 @@ def execute_with_self_healing(
     prompt: str,
     model: str,
     base_url: str,
-    system: Optional[str] = None,
+    system: str | None = None,
     temperature: float = 0.1,
     max_tokens: int = 2048,
     auto_heal: bool = True,
     max_retries: int = 2,
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     """Query Foundry with automatic AST validation and self-healing compiler feedback."""
     raw_response, telemetry = query_foundry(
         prompt=prompt,
@@ -285,13 +286,15 @@ def execute_with_self_healing(
         sys.stderr.write("  [Self-Healing] Successfully healed syntax error!\n")
         sys.stderr.flush()
     else:
-        sys.stderr.write(f"  [Self-Healing] Warning: Code still contains errors after {max_retries} retries: {err_msg}\n")
+        sys.stderr.write(
+            f"  [Self-Healing] Warning: Code still contains errors after {max_retries} retries: {err_msg}\n"
+        )
         sys.stderr.flush()
 
     return current_code, telemetry
 
 
-def read_context_files(file_paths: Optional[List[str]]) -> str:
+def read_context_files(file_paths: list[str] | None) -> str:
     """Read and concatenate context files into formatted markdown."""
     if not file_paths:
         return ""
@@ -299,7 +302,7 @@ def read_context_files(file_paths: Optional[List[str]]) -> str:
     for p in file_paths:
         if os.path.isfile(p):
             try:
-                with open(p, "r", encoding="utf-8") as f:
+                with open(p, encoding="utf-8") as f:
                     content = f.read()
                 chunks.append(f"### Context File: `{p}`\n```\n{content}\n```")
             except Exception as e:
@@ -309,7 +312,7 @@ def read_context_files(file_paths: Optional[List[str]]) -> str:
     return "\n\n".join(chunks)
 
 
-def write_output_file(output_path: Optional[str], content: str) -> None:
+def write_output_file(output_path: str | None, content: str) -> None:
     """Save content to output file if path provided."""
     if not output_path:
         return
@@ -325,6 +328,7 @@ def write_output_file(output_path: Optional[str], content: str) -> None:
 # Subcommand Handlers
 # -----------------------------------------------------------------------------
 
+
 def handle_code(args: argparse.Namespace) -> None:
     base_url = discover_foundry_url()
     model = resolve_model(args.profile, args.model, base_url)
@@ -332,7 +336,9 @@ def handle_code(args: argparse.Namespace) -> None:
 
     full_prompt = args.task
     if context:
-        full_prompt = f"{context}\n\n### Task:\n{args.task}\n\nImplement the requested functionality in clean, idiomatic Python."
+        full_prompt = (
+            f"{context}\n\n### Task:\n{args.task}\n\nImplement the requested functionality in clean, idiomatic Python."
+        )
     else:
         full_prompt = f"{args.task}\n\nRespond with clean, idiomatic Python wrapped inside ```python ... ``` fences."
 
@@ -364,7 +370,7 @@ def handle_test(args: argparse.Namespace) -> None:
         sys.stderr.write(f"Error: Target file not found: {args.file}\n")
         sys.exit(1)
 
-    with open(args.file, "r", encoding="utf-8") as f:
+    with open(args.file, encoding="utf-8") as f:
         source_code = f.read()
 
     framework = args.framework
@@ -376,7 +382,9 @@ def handle_test(args: argparse.Namespace) -> None:
         f"Return ONLY the complete test file inside ```python ... ``` fences."
     )
 
-    system_prompt = f"You are a senior Python test engineer specializing in {framework}. Write deterministic, isolated unit tests."
+    system_prompt = (
+        f"You are a senior Python test engineer specializing in {framework}. Write deterministic, isolated unit tests."
+    )
 
     tests_code, telem = execute_with_self_healing(
         prompt=prompt,
@@ -401,7 +409,7 @@ def handle_review(args: argparse.Namespace) -> None:
         sys.stderr.write(f"Error: Target file not found: {args.file}\n")
         sys.exit(1)
 
-    with open(args.file, "r", encoding="utf-8") as f:
+    with open(args.file, encoding="utf-8") as f:
         source_code = f.read()
 
     focus = args.focus
@@ -413,7 +421,9 @@ def handle_review(args: argparse.Namespace) -> None:
         f"### Target File: `{args.file}`\n```python\n{source_code}\n```"
     )
 
-    system_prompt = "You are a Principal Software Architect and Security Auditor. Be rigorous, constructive, and direct."
+    system_prompt = (
+        "You are a Principal Software Architect and Security Auditor. Be rigorous, constructive, and direct."
+    )
 
     review_text, telem = query_foundry(
         prompt=prompt,
@@ -437,7 +447,7 @@ def handle_refactor(args: argparse.Namespace) -> None:
         sys.stderr.write(f"Error: Target file not found: {args.file}\n")
         sys.exit(1)
 
-    with open(args.file, "r", encoding="utf-8") as f:
+    with open(args.file, encoding="utf-8") as f:
         source_code = f.read()
 
     directives = []
@@ -449,13 +459,15 @@ def handle_refactor(args: argparse.Namespace) -> None:
         directives.append("Clean up code readability, eliminate redundancy, and apply SOLID design patterns.")
 
     prompt = (
-        f"Refactor the following Python code with these goals:\n"
+        "Refactor the following Python code with these goals:\n"
         + "\n".join(f"- {d}" for d in directives)
         + f"\n\n### Source Code: `{args.file}`\n```python\n{source_code}\n```\n\n"
         f"Return the complete refactored file inside ```python ... ``` fences."
     )
 
-    system_prompt = "You are a Python refactoring specialist. Modernize the codebase while preserving all existing behaviors."
+    system_prompt = (
+        "You are a Python refactoring specialist. Modernize the codebase while preserving all existing behaviors."
+    )
 
     refactored, telem = execute_with_self_healing(
         prompt=prompt,
@@ -481,7 +493,7 @@ def handle_status(args: argparse.Namespace) -> None:
 
     if os.path.exists(DAEMON_JSON_PATH):
         try:
-            with open(DAEMON_JSON_PATH, "r", encoding="utf-8") as f:
+            with open(DAEMON_JSON_PATH, encoding="utf-8") as f:
                 d = json.load(f)
                 print(f"Daemon State:        Running (PID {d.get('pid')})")
                 print(f"Daemon Version:      {d.get('daemon_version')}")
@@ -497,7 +509,7 @@ def handle_status(args: argparse.Namespace) -> None:
         r = requests.get(f"{base_url}/models", timeout=3)
         if r.status_code == 200:
             models = r.json().get("data", [])
-            print(f"HTTP Server Status:  ONLINE (200 OK)")
+            print("HTTP Server Status:  ONLINE (200 OK)")
             print(f"Installed Models ({len(models)}):")
             for m in models:
                 print(f"  - {m.get('id')}")
@@ -519,7 +531,9 @@ def main():
     # Global options
     def add_common_args(sub: argparse.ArgumentParser):
         sub.add_argument("--model", "-m", type=str, default=None, help="Explicit Foundry model ID")
-        sub.add_argument("--profile", "-p", type=str, choices=["fast", "coding", "reasoning"], default="coding", help="Model profile")
+        sub.add_argument(
+            "--profile", "-p", type=str, choices=["fast", "coding", "reasoning"], default="coding", help="Model profile"
+        )
         sub.add_argument("--temperature", "-t", type=float, default=0.1, help="Sampling temperature")
         sub.add_argument("--max-tokens", type=int, default=2048, help="Max generated tokens")
         sub.add_argument("--output", "-o", type=str, default=None, help="File path to save result")

@@ -12,9 +12,9 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-import foundry_mcp_server
-from core.client import FoundryClient
 import importlib.util
+
+import foundry_mcp_server
 
 # Dynamically import ask_foundry
 ask_foundry_path = os.path.join(REPO_ROOT, ".agents", "skills", "foundry-coder", "scripts", "ask_foundry.py")
@@ -75,9 +75,7 @@ class TestFoundryMCPServer(unittest.TestCase):
     def test_handle_tool_call_list_models(self, mock_get):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
-        mock_resp.json.return_value = {
-            "data": [{"id": "Phi-3.5-mini-instruct-generic-cpu:2"}, {"id": "qwen3-0.6b"}]
-        }
+        mock_resp.json.return_value = {"data": [{"id": "Phi-3.5-mini-instruct-generic-cpu:2"}, {"id": "qwen3-0.6b"}]}
         mock_get.return_value = mock_resp
 
         out = foundry_mcp_server.handle_tool_call("list_foundry_models", {})
@@ -129,12 +127,14 @@ class TestAskFoundrySkill(unittest.TestCase):
     def test_self_healing_loop_success(self, mock_query):
         # First attempt returns code with syntax error, second attempt heals it
         mock_query.side_effect = [
-            ("```python\ndef broken(\n```", {
-                "eval_count": 10, "prompt_eval_count": 5, "tokens_saved": 15, "cost_saved_usd": 0.0001
-            }),
-            ("```python\ndef fixed():\n    return True\n```", {
-                "eval_count": 12, "prompt_eval_count": 10, "tokens_saved": 22, "cost_saved_usd": 0.0002
-            }),
+            (
+                "```python\ndef broken(\n```",
+                {"eval_count": 10, "prompt_eval_count": 5, "tokens_saved": 15, "cost_saved_usd": 0.0001},
+            ),
+            (
+                "```python\ndef fixed():\n    return True\n```",
+                {"eval_count": 12, "prompt_eval_count": 10, "tokens_saved": 22, "cost_saved_usd": 0.0002},
+            ),
         ]
 
         code, telem = ask_foundry.execute_with_self_healing(

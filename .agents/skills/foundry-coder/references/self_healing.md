@@ -17,6 +17,7 @@ The `ask_foundry.py` execution engine uses a two-step validation pipeline:
 ### 1. Abstract Syntax Tree (AST) Parsing
 ```python
 import ast
+
 ast.parse(code)
 ```
 - Validates the Python grammar without executing the code.
@@ -25,6 +26,7 @@ ast.parse(code)
 ### 2. Bytecode Compilation
 ```python
 import py_compile
+
 py_compile.compile(tmp_path, doraise=True)
 ```
 - Ensures the module compiles into clean CPython bytecode (`.pyc`).

@@ -151,9 +151,9 @@ In Microsoft Foundry Local, models must be loaded into memory before `/v1/chat/c
 ### 6. Mandatory Verification Gate
 Prior to concluding any modification or refactoring task, execute the complete unit test suite:
 ```bash
-python3 -m unittest discover -s tests
+ruff check . && ruff format --check . && python3 -m pytest
 ```
-Ensure all 54 tests pass cleanly before finalizing.
+Ensure lint is clean and every test passes before finalizing (install tooling once with `pip install -r requirements-dev.txt`).
 
 ---
 

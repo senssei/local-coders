@@ -12,7 +12,8 @@ import shutil
 import subprocess
 import sys
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import requests
 
 DAEMON_JSON_PATH = os.path.expanduser("~/.foundry/daemon.json")
@@ -27,7 +28,7 @@ def discover_foundry_url(auto_start: bool = True) -> str:
     # Check daemon.json
     if os.path.exists(DAEMON_JSON_PATH):
         try:
-            with open(DAEMON_JSON_PATH, "r", encoding="utf-8") as f:
+            with open(DAEMON_JSON_PATH, encoding="utf-8") as f:
                 data = json.load(f)
                 web_urls = data.get("web_urls", [])
                 if web_urls and isinstance(web_urls, list) and len(web_urls) > 0:
@@ -46,11 +47,11 @@ def discover_foundry_url(auto_start: bool = True) -> str:
             try:
                 sys.stderr.write("Foundry daemon not responding. Auto-starting via 'foundry server start'...\n")
                 sys.stderr.flush()
-                subprocess.run([foundry_bin, "server", "start"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+                subprocess.run([foundry_bin, "server", "start"], capture_output=True, timeout=15)
                 time.sleep(2)
                 # Re-read discovery file
                 if os.path.exists(DAEMON_JSON_PATH):
-                    with open(DAEMON_JSON_PATH, "r", encoding="utf-8") as f:
+                    with open(DAEMON_JSON_PATH, encoding="utf-8") as f:
                         data = json.load(f)
                         web_urls = data.get("web_urls", [])
                         if web_urls:
@@ -62,9 +63,9 @@ def discover_foundry_url(auto_start: bool = True) -> str:
     return "http://localhost:5272/v1"
 
 
-def resolve_model_name(requested_model: Optional[str], base_url: str) -> str:
+def resolve_model_name(requested_model: str | None, base_url: str) -> str:
     """Resolve model alias to exact identifier expected by Foundry ChatClient."""
-    alias_map: Dict[str, str] = {}
+    alias_map: dict[str, str] = {}
     try:
         r = requests.get(f"{base_url}/models", timeout=3)
         if r.status_code == 200:
@@ -98,9 +99,9 @@ def resolve_model_name(requested_model: Optional[str], base_url: str) -> str:
 
 def call_foundry(
     prompt: str,
-    model: Optional[str] = None,
-    system: Optional[str] = None,
-    options: Optional[Dict[str, Any]] = None,
+    model: str | None = None,
+    system: str | None = None,
+    options: dict[str, Any] | None = None,
 ) -> str:
     """Send OpenAI-compatible completion request to Foundry Local and return response with telemetry."""
     base_url = discover_foundry_url()
@@ -111,7 +112,7 @@ def call_foundry(
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "model": target_model,
         "messages": messages,
         "stream": False,
@@ -143,8 +144,7 @@ def call_foundry(
                 sys.stderr.flush()
                 load_res = subprocess.run(
                     [foundry_bin, "model", "load", target_model],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    capture_output=True,
                     text=True,
                     timeout=180,
                 )
@@ -189,7 +189,7 @@ def call_foundry(
         return f"Error calling Microsoft Foundry Local model '{target_model}': {e}"
 
 
-def handle_list_tools() -> List[Dict[str, Any]]:
+def handle_list_tools() -> list[dict[str, Any]]:
     """Return tools exposed by the Foundry Local MCP server."""
     base_url = discover_foundry_url(auto_start=False)
     default_model = resolve_model_name(None, base_url)
@@ -266,7 +266,7 @@ def handle_list_tools() -> List[Dict[str, Any]]:
     ]
 
 
-def handle_tool_call(name: str, args: Dict[str, Any]) -> str:
+def handle_tool_call(name: str, args: dict[str, Any]) -> str:
     """Handle MCP tool execution requests."""
     base_url = discover_foundry_url(auto_start=False)
 
@@ -320,7 +320,7 @@ def handle_tool_call(name: str, args: Dict[str, Any]) -> str:
         status_info = [f"Foundry Base URL: {base_url}"]
         if os.path.exists(DAEMON_JSON_PATH):
             try:
-                with open(DAEMON_JSON_PATH, "r", encoding="utf-8") as f:
+                with open(DAEMON_JSON_PATH, encoding="utf-8") as f:
                     daemon_data = json.load(f)
                     status_info.append(f"Daemon PID: {daemon_data.get('pid')}")
                     status_info.append(f"Daemon Version: {daemon_data.get('daemon_version')}")
