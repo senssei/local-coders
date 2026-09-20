@@ -138,14 +138,13 @@ When registered with your AI agent, `local-coder-unified-mcp` provides the follo
 ```json
 {
   "mcpServers": {
-    "local-coder-unified-mcp": {
+    "local-coder": {
       "command": "python3",
       "args": [
-        "/home/senssei/05-local-coders/local_coder_mcp_server.py"
+        "/home/senssei/.gemini/config/skills/local-coder/local_coder_mcp_server.py"
       ],
       "env": {
-        "PRISM_BASE_URL": "http://127.0.0.1:5272/v1",
-        "OLLAMA_BASE_URL": "http://127.0.0.1:11434"
+        "LOCAL_CODER_ENGINE": "auto"
       }
     }
   }
@@ -165,3 +164,14 @@ The unified router chooses the optimal engine automatically based on hardware an
 | **Any / CPU** | Generic x86_64 | **Ollama** (`llama.cpp` CPU) | **Foundry Local** | **Prism** |
 
 If an active engine is stopped or offline, the client seamlessly fails over to the next available provider.
+
+---
+
+## 📚 Related Documentation
+
+- [Prism Multi-Engine Connector](PRISM_LOCAL.md)
+- [Ollama Coder Skill Guide](OLLAMA_CODER_SKILL.md)
+- [Foundry Coder Skill Guide](FOUNDRY_CODER_SKILL.md)
+- [MCP Server Setup Guide](MCP_SERVER.md)
+- [Tutorial: Agent MCP Integration](tutorials/04_AGENT_INTEGRATION_MCP.md)
+

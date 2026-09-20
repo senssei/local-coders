@@ -115,3 +115,14 @@ To register the skill globally across all Antigravity agent sessions on the mach
 ./install_foundry_skill.sh
 ```
 This deploys the skill to `~/.gemini/config/skills/foundry-coder/`, creates symlinks in `~/.local/bin/ask_foundry.py`, and registers `foundry-local` in `~/.gemini/config/mcp_config.json`.
+
+---
+
+## 📚 Related Documentation
+
+- [Unified Local Coder Architecture](UNIFIED_LOCAL_CODER.md)
+- [Prism Multi-Engine Connector](PRISM_LOCAL.md)
+- [Ollama Coder Skill Guide](OLLAMA_CODER_SKILL.md)
+- [MCP Server Setup Guide](MCP_SERVER.md)
+- [Tutorial: Agent MCP Integration](tutorials/04_AGENT_INTEGRATION_MCP.md)
+

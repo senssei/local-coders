@@ -1,6 +1,6 @@
 # 🤖 Tutorial 4: Zero-Token-Cost Coding Agent Integration (MCP & Skills)
 
-This tutorial explains how to integrate local LLMs running via **Ollama** and **Microsoft Foundry Local** into your AI coding agent (e.g. **Google Antigravity**, **Cursor**, **Claude Code**, or **Windsurf**) using the **Model Context Protocol (MCP)** and dedicated agent skills.
+This tutorial explains how to integrate local LLMs running via **Prism (CUDA)**, **Ollama**, and **Microsoft Foundry Local** into your AI coding agent (e.g. **Google Antigravity**, **Cursor**, **Claude Code**, or **Windsurf**) using the **Model Context Protocol (MCP)** and dedicated agent skills.
 
 ---
 
@@ -16,56 +16,45 @@ By delegating deterministic coding tasks to local accelerators (Apple Silicon Me
 - **100% Zero Token Cost**: Local GPU cycles are completely free.
 - **Data Privacy**: Source code, intellectual property, and internal configs never leave your machine.
 - **AST Self-Healing**: Local syntax errors are automatically detected and self-corrected locally without agent intervention.
+- **Sub-Second Latency**: Local models deliver 80–120+ tokens per second directly on host hardware.
 
 ---
 
 ## 🛠 Step 1: One-Click Global Installation
 
-This repository includes automated installation scripts that install skills into `~/.gemini/config/skills/` and register MCP servers in `~/.gemini/config/mcp_config.json`:
+This repository provides automated installation scripts that configure skills in `~/.gemini/config/skills/` and register MCP servers in `~/.gemini/config/mcp_config.json`:
 
 ```bash
-# 1. Install Ollama Coder skill & register 'ollama-local' MCP:
-./install_global_skill.sh
+# Recommended: Deploy unified cross-engine local-coder skill & MCP:
+./install_unified.sh
 
-# 2. Install Foundry Coder skill & register 'foundry-local' MCP:
-./install_foundry_skill.sh
-
-# 3. Install Prism CUDA runner & register 'prism' MCP:
+# (Optional) Deploy standalone Prism CUDA accelerator for WSL2 / Linux:
 ./install_prism.sh
+
+# (Optional) Deploy standalone Ollama & Foundry skills:
+./install_global_skill.sh
+./install_foundry_skill.sh
 ```
 
 ### Manual Configuration for Other Agents (Cursor / Claude Desktop / Windsurf)
-If configuring Cursor or Claude Desktop, add the following to your `mcp_config.json` or `claude_desktop_config.json`:
+If configuring Cursor or Claude Desktop, add the unified `local-coder` server to your `mcp_config.json` or `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
-    "ollama-local": {
+    "local-coder": {
       "command": "python3",
-      "args": ["/path/to/local-coders/ollama_mcp_server.py"],
+      "args": ["/path/to/local-coders/local_coder_mcp_server.py"],
       "env": {
-        "OLLAMA_HOST": "http://localhost:11434",
-        "DEFAULT_MODEL": "qwen2.5-coder:7b",
-        "REASONING_MODEL": "llama3.1:8b"
-      }
-    },
-    "foundry-local": {
-      "command": "python3",
-      "args": ["/path/to/local-coders/foundry_mcp_server.py"],
-      "env": {
-        "DEFAULT_MODEL": "phi-3.5-mini"
-      }
-    },
-    "prism": {
-      "command": "prism",
-      "args": ["mcp"],
-      "env": {
-        "PRISM_BASE_URL": "http://127.0.0.1:5272/v1"
+        "LOCAL_CODER_ENGINE": "auto"
       }
     }
   }
 }
 ```
+
+> [!TIP]
+> On Linux / WSL2, if running Prism as your CUDA accelerator, verify that `PRISM_BASE_URL` is set to `http://127.0.0.1:5272/v1` to avoid WSL2 IPv6 resolution pitfalls.
 
 ---
 
@@ -73,13 +62,21 @@ If configuring Cursor or Claude Desktop, add the following to your `mcp_config.j
 
 Once registered, your agent gains access to the following native tool calls:
 
-### 1. Ollama Tools (`ollama-local`)
-- **`ask_local_coder(task, context_code, model)`**: Instructs `qwen2.5-coder:7b` to write implementations, algorithms, and classes.
-- **`local_code_review(code, focus)`**: Uses reasoning models (`llama3.1:8b`) to audit code for race conditions, security vulnerabilities, and memory leaks.
-- **`list_local_models()`**: Queries available local models and quantization levels.
+### 1. Unified Cross-Engine Tools (`local-coder` - Recommended)
+- **`local_code(task, context, engine, profile)`**: Generates verified Python code with AST self-healing across Prism, Ollama, or Foundry.
+- **`local_test(file_path, code, framework, engine)`**: Generates unit test suites (`pytest` or `unittest`) with edge cases and mock fixtures.
+- **`local_code_review(file_path, code, focus, engine)`**: Audits code for security vulnerabilities, race conditions, and memory leaks.
+- **`local_refactor(file_path, code, type_hints, docstrings, engine)`**: Adds strict type annotations (`typing`) and docstrings.
+- **`local_status()`**: Returns live hardware detection and engine availability.
+- **`list_local_models()`**: Aggregates all installed models across Prism, Ollama, and Foundry.
 
-### 2. Foundry Local Tools (`foundry-local`)
-- **`ask_foundry_coder(task, context_code, model)`**: Generates code using ONNX Runtime GenAI (`phi-3.5-mini` or `phi-4-mini`).
+### 2. Standalone Ollama Tools (`ollama-local`)
+- **`ask_local_coder(task, context_code, model)`**: Instructs `qwen2.5-coder:7b` to write implementations, algorithms, and classes.
+- **`local_code_review(code, focus)`**: Uses reasoning models (`llama3.1:8b`) to audit code for bugs and concurrency issues.
+- **`list_local_models()`**: Queries available Ollama models.
+
+### 3. Standalone Foundry Local Tools (`foundry-local`)
+- **`ask_foundry_coder(task, context_code, model)`**: Generates code using ONNX Runtime GenAI (`phi-3.5-mini`).
 - **`foundry_code_review(code, focus)`**: Audits code via Foundry Local.
 - **`get_foundry_status()`**: Returns daemon health, PID, and active port.
 
@@ -87,73 +84,65 @@ Once registered, your agent gains access to the following native tool calls:
 
 ## ⚡ Step 3: Invoking Skills Directly via CLI
 
-Agents or developers can also call the helper scripts directly from the terminal or subshells:
+Agents or developers can also execute local coding operations directly from the terminal:
 
-### A. Implementing Functions with Self-Healing (`code`)
+### A. Unified Multi-Engine CLI (`ask-coder` - Recommended)
 ```bash
-python3 .agents/skills/ollama-coder/scripts/ask_local.py code \
-  --task "Implement a thread-safe sliding window rate limiter with microsecond precision" \
+# Code generation:
+ask-coder code \
+  --task "Implement a thread-safe sliding window rate limiter" \
   --output src/rate_limiter.py
-```
 
-### B. Automated Unit Test Generation (`test`)
-```bash
-python3 .agents/skills/ollama-coder/scripts/ask_local.py test \
+# Automated unit tests:
+ask-coder test \
   --file src/rate_limiter.py \
   --framework pytest \
   --output tests/test_rate_limiter.py
-```
 
-### C. Architectural & Security Review (`review`)
-```bash
-python3 .agents/skills/ollama-coder/scripts/ask_local.py review \
+# Architecture & security audit:
+ask-coder review \
   --file src/server.py \
-  --focus "race conditions, unhandled exceptions, and memory leaks"
-```
+  --focus "race conditions, unhandled exceptions, and deadlocks"
 
-### D. Upgrading Types & Docstrings (`refactor`)
-```bash
-python3 .agents/skills/ollama-coder/scripts/ask_local.py refactor \
+# Refactoring with type hints:
+ask-coder refactor \
   --file src/legacy_util.py \
   --type-hints \
   --docstrings \
   --output src/legacy_util_typed.py
+
+# Engine status & hardware diagnostics:
+ask-coder status
 ```
 
 ---
 
 ## 🔄 Step 4: How AST Self-Healing Works
 
-When an agent generates Python code using `ask_local.py` or `ask_foundry.py`:
-1. The script compiles the generated code using Python's `ast.parse()`.
+When an agent generates Python code:
+1. The client compiles the generated code using Python's `ast.parse()`.
 2. If a `SyntaxError` or `IndentationError` occurs:
-   - The script captures the exact traceback and offending line numbers.
-   - It re-prompts the local model with the error:  
+   - The system captures the exact traceback and offending line/column numbers.
+   - It re-prompts the local model with the diagnostic trace:  
      `"[Self-Healing] Syntax error detected on line 14: ... Please fix and re-emit clean code."`
    - It attempts self-correction up to **2 consecutive times**.
-3. Only verified, syntactically valid Python code is saved to disk.
+3. Only verified, syntactically valid Python code is emitted and saved to disk.
 
 > [!TIP]
 > **Generating Non-Python Code:**  
-> If generating Dockerfiles, bash scripts, HTML, or YAML, always pass **`--no-heal`** to disable Python AST verification.
+> When generating Dockerfiles, bash scripts, HTML, or YAML, pass **`--no-heal`** to disable Python AST verification.
 
 ---
 
 ## 📈 Monitoring Token & Cost Savings
 
-[benchrig](https://github.com/senssei/benchrig) tracks total tokens offloaded to local models. Install it (`pip install benchrig`) and run its comparison mode to view aggregated savings:
-
-```bash
-benchrig --compare results/latest.json
-```
+The unified client includes built-in telemetry calculating token savings and USD savings compared to frontier cloud models on every request:
 
 ```text
-           ⚡ Cloud Token & Cost Savings (via Local Coder Offloading)           
-┏━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━┓
-┃ Model      ┃     Prompt ┃ Completion ┃       Total ┃ Est. Cloud ┃ Local Cost ┃
-┃            ┃   Ingested ┃     Tokens ┃      Tokens ┃    Savings ┃            ┃
-┡━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━━━━┩
-│ phi-4-mini │        349 │        466 │         815 │    $0.0080 │  ✅ $0.00  │
-│ phi3:mini  │        412 │      1,247 │       1,659 │    $0.0199 │  ✅ $0.00  │
-└────────────┴────────────┴────────────┴─────────────┴────────────┴────────────┘
+[Ollama: qwen2.5-coder:7b | 80.2 tok/s | 144 tokens in 1.80s | ⚡ Saved 247 cloud tokens (~$0.0025)]
+```
+
+You can also use [benchrig](https://github.com/senssei/benchrig) to compare performance benchmarks:
+```bash
+benchrig --compare results/latest.json
 ```

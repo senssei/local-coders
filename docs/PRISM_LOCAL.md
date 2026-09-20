@@ -99,6 +99,7 @@ Prism includes a native stdio MCP server registered via `./install_prism.sh` int
 
 ## 📚 Related Documentation
 
+- [Unified Local Coder Architecture](UNIFIED_LOCAL_CODER.md)
 - [Foundry Coder Skill Guide](FOUNDRY_CODER_SKILL.md)
 - [Ollama Coder Skill Guide](OLLAMA_CODER_SKILL.md)
 - [MCP Server Setup Guide](MCP_SERVER.md)

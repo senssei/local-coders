@@ -17,7 +17,7 @@ See [AGENTS.md](AGENTS.md) for usage and the troubleshooting playbook.
 ## Install
 
 ```bash
-./install_unified.sh          # unified cross-engine skill -> ~/.gemini/config/skills/, registers local-coder-unified-mcp
+./install_unified.sh          # unified cross-engine skill -> ~/.gemini/config/skills/, registers `local-coder` MCP server
 ./install_prism.sh            # prism-local   -> links CLI to ~/.local/bin/prism, registers `prism` MCP server
 ./install_global_skill.sh     # ollama-coder  -> ~/.gemini/config/skills/, registers `ollama-local` MCP server
 ./install_foundry_skill.sh    # foundry-coder -> ~/.gemini/config/skills/, registers `foundry-local` MCP server

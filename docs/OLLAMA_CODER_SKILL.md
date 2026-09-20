@@ -157,3 +157,14 @@ To register the skill globally across all Antigravity agent sessions on the mach
 ./install_global_skill.sh
 ```
 This script copies the skill files to `~/.gemini/config/skills/ollama-coder/` and registers the `ollama-local` MCP server in the global agent configuration.
+
+---
+
+## 📚 Related Documentation
+
+- [Unified Local Coder Architecture](UNIFIED_LOCAL_CODER.md)
+- [Prism Multi-Engine Connector](PRISM_LOCAL.md)
+- [Foundry Coder Skill Guide](FOUNDRY_CODER_SKILL.md)
+- [MCP Server Setup Guide](MCP_SERVER.md)
+- [Tutorial: Agent MCP Integration](tutorials/04_AGENT_INTEGRATION_MCP.md)
+
