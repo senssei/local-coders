@@ -9,6 +9,37 @@ SYSTEM_CODER = (
     "Include type annotations and docstrings."
 )
 
+_LANGUAGE_NAME = re.compile(r"[a-z0-9_+#.\-]{1,24}")
+
+
+def normalize_language(language: str | None) -> str:
+    """Lower-case language name for prompts and fences; ``py``/``python3`` mean ``python``.
+
+    Raises ValueError for anything that is not a short plain token, since the name goes into the prompt.
+    """
+    name = (language or "python").strip().lower()
+    if not _LANGUAGE_NAME.fullmatch(name):
+        raise ValueError(
+            f"Invalid language {language!r}: use a short name such as python, bash, dockerfile, yaml or typescript"
+        )
+    return "python" if name in ("py", "python3") else name
+
+
+def is_python(language: str | None) -> bool:
+    return normalize_language(language) == "python"
+
+
+def system_coder(language: str | None = "python") -> str:
+    """System prompt for code generation in ``language`` (the Python one also asks for types and docstrings)."""
+    lang = normalize_language(language)
+    if lang == "python":
+        return SYSTEM_CODER
+    return (
+        f"You are an expert software engineer. Output only clean, robust, production-grade {lang} code. "
+        f"Wrap your output in a single ```{lang} ... ``` markdown block and add no explanation outside it."
+    )
+
+
 SYSTEM_REVIEWER = (
     "You are an expert security auditor and software architect. "
     "Audit the code thoroughly for race conditions, resource leaks, memory safety, "
@@ -17,35 +48,53 @@ SYSTEM_REVIEWER = (
 
 
 def extract_code_block(response_text: str, language: str = "python") -> str:
-    """Extract code from markdown code fences or return stripped raw text."""
-    pattern = rf"```{language}\s*([\s\S]*?)```"
-    match = re.search(pattern, response_text, re.IGNORECASE)
+    """Extract the code from an answer.
+
+    Order: the first ```<language> block; else the first fenced block of any language (its info string, such as
+    ``bash``, is not part of the code); else, for a fence that was never closed (a cut-off answer), everything after
+    the opening fence line; else the whole answer. Only one block is returned: a second block is not appended.
+    """
+    match = re.search(rf"```{re.escape(language)}[ \t]*\r?\n?([\s\S]*?)```", response_text, re.IGNORECASE)
     if match:
         return match.group(1).strip()
 
-    generic_pattern = r"```\s*([\s\S]*?)```"
-    generic_match = re.search(generic_pattern, response_text)
-    if generic_match:
-        return generic_match.group(1).strip()
+    fenced = re.search(r"```[^\n`]*\r?\n([\s\S]*?)```", response_text)
+    if fenced:
+        return fenced.group(1).strip()
+
+    opening = re.search(r"```[^\n`]*\r?\n", response_text)
+    if opening:
+        return response_text[opening.end() :].strip()
 
     return response_text.strip()
 
 
-def build_code_prompt(task: str, context_files: dict[str, str] | None = None) -> list[dict[str, str]]:
-    """Build messages for code generation."""
+def build_code_prompt(
+    task: str, context_files: dict[str, str] | None = None, language: str | None = "python"
+) -> list[dict[str, str]]:
+    """Build messages for code generation in ``language`` (default Python)."""
+    lang = normalize_language(language)
     user_prompt = f"TASK: {task}\n\n"
     if context_files:
         user_prompt += "CONTEXT FILES:\n"
         for path, content in context_files.items():
             user_prompt += f"--- {path} ---\n{content}\n\n"
-    user_prompt += (
-        "INSTRUCTIONS:\n"
-        "- Write the complete implementation in Python.\n"
-        "- Use proper typing and docstrings.\n"
-        "- Respond with the code inside a ```python ... ``` block."
-    )
+    if lang == "python":
+        user_prompt += (
+            "INSTRUCTIONS:\n"
+            "- Write the complete implementation in Python.\n"
+            "- Use proper typing and docstrings.\n"
+            "- Respond with the code inside a ```python ... ``` block."
+        )
+    else:
+        user_prompt += (
+            "INSTRUCTIONS:\n"
+            f"- Write the complete implementation in {lang}.\n"
+            f"- Follow the idioms and conventions of {lang}.\n"
+            f"- Respond with the code inside a single ```{lang} ... ``` block."
+        )
     return [
-        {"role": "system", "content": SYSTEM_CODER},
+        {"role": "system", "content": system_coder(lang)},
         {"role": "user", "content": user_prompt},
     ]
 

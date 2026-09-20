@@ -152,7 +152,7 @@ class TestUnifiedRouter(unittest.TestCase):
         ollama = EngineInfo("Ollama", EngineType.OLLAMA, "http://localhost:11434/v1", True)
         with patch("local_coder.router.platform.system", return_value="Linux"):
             ranked = self.router.rank_online([foundry, ollama, prism])
-        self.assertEqual([e.engine_type for e in ranked], [EngineType.PRISM, EngineType.OLLAMA])
+        self.assertEqual([e.engine_type for e in ranked], [EngineType.OLLAMA, EngineType.PRISM])
 
     def test_failover_candidates_skip_failed_endpoint(self):
         prism = EngineInfo("Prism", EngineType.PRISM, "http://127.0.0.1:5272/v1", True)
@@ -176,6 +176,26 @@ class TestUnifiedClient(unittest.TestCase):
         sample = "Here is the code:\n```python\ndef add(a, b):\n    return a + b\n```\nEnjoy!"
         extracted = extract_code_block(sample, "python")
         self.assertEqual(extracted, "def add(a, b):\n    return a + b")
+
+    def test_extract_code_block_edge_cases(self):
+        cases = {
+            "first python block only": ("```python\nimport os\n```\nusage:\n```python\nprint(1)\n```", "import os"),
+            "python tag is case-insensitive": ("```Python\nx = 1\n```", "x = 1"),
+            "other language: info string is not code": ("```bash\n#!/bin/bash\necho hi\n```", "#!/bin/bash\necho hi"),
+            "dockerfile": ("```dockerfile\nFROM python:3.12\n```", "FROM python:3.12"),
+            "bare fence": ("```\nplain\n```", "plain"),
+            "python preferred over an earlier other block": ("```bash\nls\n```\n```python\nx = 1\n```", "x = 1"),
+            "unclosed fence keeps the code, drops the fence line": (
+                "```python\ndef f(:\n    pass",
+                "def f(:\n    pass",
+            ),
+            "unclosed fence of another language": ("Here:\n```yaml\na: 1\nb: 2", "a: 1\nb: 2"),
+            "no fence": ("just words", "just words"),
+            "windows line endings": ("```python\r\nx = 1\r\n```", "x = 1"),
+        }
+        for name, (text, expected) in cases.items():
+            with self.subTest(name):
+                self.assertEqual(extract_code_block(text, "python"), expected)
 
     def test_ast_validation_valid(self):
         code = "def valid():\n    return 42\n"

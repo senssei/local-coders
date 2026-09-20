@@ -83,13 +83,14 @@ You can also specify any custom model directly using `--model <model_id>`; alias
 
 All code generation subcommands (`code`, `test`, `refactor`) validate the generated Python with `ast.parse` and, on failure, feed the error back to the model (up to 2 retries). It is on by default. Tests must contain a `test_*` function, and a "fix" that discards most of the code is rejected. If it gives up it says so on stderr and returns the best effort: the output is **not guaranteed** to be valid.
 
-Disable validation if generating non-Python code:
+For non-Python output pass `--language` (it changes the prompt and skips the Python check; the result is returned unchecked):
 ```bash
 python3 .agents/skills/foundry-coder/scripts/ask_foundry.py code \
   --task "Write a bash deployment script" \
-  --no-heal \
+  --language bash \
   --output deploy.sh
 ```
+(`--no-heal` alone only skips validation; the prompt still asks for Python.)
 
 ---
 

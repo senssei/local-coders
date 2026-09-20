@@ -131,7 +131,7 @@ When an agent generates Python code:
 
 > [!TIP]
 > **Generating Non-Python Code:**  
-> When generating Dockerfiles, bash scripts, HTML, or YAML, pass **`--no-heal`** to disable Python AST verification.
+> When generating Dockerfiles, bash scripts, HTML, or YAML, pass **`--language <name>`** (for example `--language bash`). It changes the prompt, which otherwise asks for Python, and disables Python AST verification; the result is returned unchecked.
 
 ---
 

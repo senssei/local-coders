@@ -5,7 +5,7 @@ cloud-token cost. Extracted from [benchrig](https://github.com/senssei/benchrig)
 
 | Skill | Backend | Entry point |
 |---|---|---|
-| `local-coder` *(unified)* | Auto-routes: Prism (CUDA), Ollama (Metal/CUDA), Foundry | `ask_coder.py`, `local_coder_mcp_server.py` |
+| `local-coder` *(unified)* | Auto-routes: Ollama first, then Prism (CUDA) and Foundry (order and exceptions are configurable) | `ask_coder.py`, `local_coder_mcp_server.py` |
 | `ollama-coder` | Ollama (`qwen2.5-coder:7b`, `llama3.1:8b`, ...) | `.agents/skills/ollama-coder/scripts/ask_local.py`, `ollama_mcp_server.py` |
 | `foundry-coder` | Microsoft Foundry Local or Prism (`phi-3.5-mini`, `qwen3-0.6b`, ...) | `.agents/skills/foundry-coder/scripts/ask_foundry.py`, `foundry_mcp_server.py` |
 | `prism` *(MCP / connector)* | [Prism](https://github.com/senssei/prism-local) (ONNX GenAI CUDA + Ollama unified) | `prism serve --device cuda`, `prism mcp` |
@@ -38,15 +38,22 @@ python3 install.py --uninstall            # remove what it added (--components a
 | Antigravity | `~/.gemini/config/mcp_config.json` | `~/.gemini/config/skills/` | verified |
 | opencode | `~/.config/opencode/opencode.json` | reads `~/.claude/skills/`; else `~/.config/opencode/skills/` | verified against the real CLI |
 | Gemini CLI | `~/.gemini/settings.json` | `~/.gemini/skills/` | verified against the real CLI (0.60): skills discovered, servers connect; it disables MCP servers in untrusted folders |
-| Cursor | `~/.cursor/mcp.json` | MCP only | per upstream docs, unverified |
+| Cursor | `~/.cursor/mcp.json` | MCP only, see the note below | verified with Cursor's CLI (`cursor-agent mcp list`: `ready`) |
 | Codex CLI | `~/.codex/config.toml` (managed block) | `~/.codex/skills/` | verified against the real CLI (0.155): `codex mcp list` shows the servers; skills path is the one Codex documents |
 | anything else | `--mcp-json PATH` for any `{"mcpServers": ...}` file (Windsurf, Cline, ...) | | |
+
+**Cursor note.** Cursor has no skills directory, so only the MCP servers are registered; the skill's guidance on when to use the tools
+is not installed (a Cursor rule under `.cursor/rules/` would be the place for it). The check was done with Cursor's own CLI
+(`cursor-agent mcp list` shows `local-coder`, `ollama-local` and `foundry-local` as `ready`, and its message names `~/.cursor/mcp.json`
+as the file it reads); the desktop app was not started, so if it asks you to approve or enable the servers, do that in its MCP settings.
+The installer also treats a `cursor-agent` on `PATH` as a detected Cursor.
 
 Components: `local-coder` (default, unified), `ollama-coder`, `foundry-coder`, `prism`, or `all`. Useful flags:
 `--env LOCAL_CODER_ENGINE=ollama` (passed to the servers), `--python /usr/bin/python3` (interpreter for the MCP servers;
 it needs `requests`), `--copy` (self-contained skill copies instead of symlinks), `--link` (symlink the shared copy to this checkout so edits apply immediately, for development; do not move the checkout afterwards), `--force` (replace a same-named server
 you wrote yourself). Existing skill directories are moved to `~/.local/share/local-coders-backups/<harness>/` (not next to the skills, where a harness would list them twice), existing config files get a one-time
-`*.bak-local-coders` copy, and unparseable configs are refused rather than overwritten. Windows is not supported (use WSL);
+`*.bak-local-coders` copy, and unparseable configs are refused rather than overwritten. `--uninstall` removes only the entries and links it made; a
+config file it had to create stays behind, possibly holding just an empty list (for example `~/.cursor/mcp.json` with `{"mcpServers": {}}`), which is harmless and can be deleted by hand. Windows is not supported (use WSL);
 a Windows-side Gemini CLI keeps its config on the Windows side, out of reach of a WSL install.
 
 The old `install_unified.sh`, `install_global_skill.sh`, `install_foundry_skill.sh` and `install_prism.sh` are now thin
@@ -65,6 +72,9 @@ wrappers around `install.py`. A standalone, independently distributable copy of 
 pip install -r requirements-dev.txt
 ruff check . && ruff format --check . && python -m pytest
 ```
+
+`scripts/docker_clean_test.sh` repeats the whole installer check on a clean Debian container (unprivileged user, the real Claude Code,
+opencode, Codex, Gemini and Cursor CLIs installed from npm and cursor.com, each asked what it sees); it needs Docker and network.
 
 `tests/test_packaging_sync.py` keeps the copies inside `packages/antigravity-local-coder/` (the two entry-point scripts and
 the whole `local_coder/` package) byte-identical to their sources; after changing `local_coder/`, re-run

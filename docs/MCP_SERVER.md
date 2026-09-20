@@ -137,7 +137,7 @@ Add to your `claude_desktop_config.json` (`~/Library/Application Support/Claude/
 ---
 
 ### C. Cursor & Windsurf
-`python3 install.py --harness cursor` writes `~/.cursor/mcp.json` for you (for Windsurf and other clients use `--mcp-json PATH`). By hand, add to `~/.cursor/mcp.json`:
+`python3 install.py --harness cursor` writes `~/.cursor/mcp.json` for you (for Windsurf and other clients use `--mcp-json PATH`). It was checked with Cursor's CLI (`cursor-agent mcp list` shows the servers as `ready`); the desktop app was not started, and Cursor has no skills directory, so only the tools are registered. By hand, add to `~/.cursor/mcp.json`:
 
 ```json
 {

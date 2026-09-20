@@ -285,8 +285,12 @@ class EngineRouter:
         """Select the best available engine.
 
         Priority in AUTO mode:
-        1. On Linux/WSL2 with NVIDIA GPU: Prism (direct CUDA EP) -> Ollama (CUDA) -> Foundry.
-        2. On macOS (Apple Silicon Metal): Ollama (native Metal) -> Foundry -> Prism.
+        1. On Linux/WSL2: Ollama -> Prism (CUDA) -> Foundry.
+        2. On macOS (Apple Silicon Metal): Ollama -> Foundry -> Prism.
+
+        Ollama comes first everywhere: measured on an RTX 5070 it is the fastest and most predictable engine for
+        coder models, while Prism's ONNX models can loop on long outputs and hold GPU memory (prism-local #5, #6).
+        Routing rules can put Prism first for a task or project.
         """
         self.last_decision = None
         if isinstance(requested_engine, list | tuple):
@@ -360,8 +364,8 @@ class EngineRouter:
         """Engine preference order for AUTO mode on the current platform."""
         if platform.system().lower() == "darwin":
             return [EngineType.OLLAMA, EngineType.FOUNDRY, EngineType.PRISM]
-        # Linux / WSL2 priority
-        return [EngineType.PRISM, EngineType.OLLAMA, EngineType.FOUNDRY]
+        # Linux / WSL2: Prism (direct CUDA) is the second choice, ahead of Foundry Local's CPU fallback
+        return [EngineType.OLLAMA, EngineType.PRISM, EngineType.FOUNDRY]
 
     def rank_online(
         self, engines: list[EngineInfo], order: list[EngineType] | None = None, respect_cooldown: bool = True

@@ -55,11 +55,11 @@ After the last attempt the loop prints `[Self-Healing] Giving up (...)` on stder
 
 ## 5. Disabling Self-Healing
 
-Self-healing is enabled by default for `code`, `test`, and `refactor`. (`--auto-heal` is accepted for compatibility and does nothing.) For anything that is not Python (shell, SQL, JSON, YAML, Go, Rust, ...) pass `--no-heal`:
+Self-healing is enabled by default for `code`, `test`, and `refactor`. (`--auto-heal` is accepted for compatibility and does nothing.) For anything that is not Python (shell, SQL, JSON, YAML, Go, Rust, ...) pass `--language`, which changes the prompt and skips the check (`--no-heal` alone only skips validation, and the prompt would still ask for Python):
 
 ```bash
 python3 .agents/skills/local-coder/scripts/ask_local.py code \
   --task "Write an nginx configuration for reverse proxy" \
-  --no-heal \
+  --language nginx \
   --output nginx.conf
 ```

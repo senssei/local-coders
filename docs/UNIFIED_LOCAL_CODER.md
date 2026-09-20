@@ -79,7 +79,7 @@ ask_coder.py [--engine auto|prism|ollama|foundry] <code|test|review|refactor|sta
 
 | Subcommand | Options |
 |---|---|
-| `code` | `--task` *(required)*, `--files F…`, `--model`, `--profile coding\|fast\|reasoning`, `--output`, `--no-heal`, `--max-tokens` |
+| `code` | `--task` *(required)*, `--files F…`, `--model`, `--profile coding\|fast\|reasoning`, `--language`, `--output`, `--no-heal`, `--max-tokens` |
 | `test` | `--file` *(required)*, `--framework pytest\|unittest`, `--model`, `--output`, `--no-heal`, `--max-tokens` |
 | `review` | `--file` *(required)*, `--focus`, `--model`, `--output`, `--max-tokens` |
 | `refactor` | `--file` *(required)*, `--type-hints/--no-type-hints`, `--docstrings/--no-docstrings` *(both on by default)*, `--model`, `--output`, `--no-heal`, `--max-tokens` |
@@ -138,7 +138,7 @@ python3 ask_coder.py --engine foundry code --task "..."
 
 | Tool | Parameters | Purpose |
 |---|---|---|
-| `local_code` | `task` *(required)*, `context_code`, `engine`, `profile`, `model`, `max_tokens` | Generates Python with AST self-healing. |
+| `local_code` | `task` *(required)*, `context_code`, `language`, `engine`, `profile`, `model`, `max_tokens` | Generates code: Python with AST self-healing, other languages unchecked. |
 | `local_test` | `code` *(required)*, `file_path`, `framework`, `engine`, `max_tokens` | Generates a `pytest` or `unittest` suite. |
 | `local_code_review` | `code` *(required)*, `file_path`, `focus`, `engine`, `max_tokens` | Audits code for security, races and bottlenecks. |
 | `local_refactor` | `code` *(required)*, `file_path`, `type_hints`, `docstrings`, `engine`, `max_tokens` | Adds type annotations and docstrings. |
@@ -169,11 +169,13 @@ AUTO mode uses a fixed order that depends on the **operating system** (not on wh
 
 | Operating system | 1st | 2nd | 3rd |
 |---|---|---|---|
-| **Linux / WSL2** | Prism | Ollama | Foundry Local |
+| **Linux / WSL2** | Ollama | Prism | Foundry Local |
 | **macOS** | Ollama | Foundry Local | Prism |
 
+Ollama is first on both because, on the machine this was measured on (RTX 5070, 12 GB), it was the fastest and most predictable engine for coder models; Prism's ONNX models were slower for `qwen2.5-coder`, `phi-4-mini` looped on long outputs, and a long prompt could leave its GPU memory full ([details](PRISM_LOCAL.md#-measured-behaviour)). Prism stays second on Linux/WSL2 (CUDA, ahead of Foundry Local's CPU fallback) and is one `prefer` rule away for a task or project ([how](ROUTING.md#putting-prism-first-for-something)).
+
 - **Failover** happens in AUTO mode when a request cannot connect. The model is re-resolved for the new engine, only engines your rules allow are considered, and the failed engine is skipped for `LOCAL_CODER_COOLDOWN` seconds (default 30). HTTP errors from a live engine are reported, not retried elsewhere.
-- **Built-in exceptions**: `test` prefers Ollama, and an explicitly requested `*coder*` model avoids Prism. Both are measured (see [Prism](PRISM_LOCAL.md#-measured-behaviour)) and can be overridden.
+- **Built-in exception**: an explicitly requested `*coder*` model never goes to Prism (measured, see [Prism](PRISM_LOCAL.md#-measured-behaviour)); a rule of your own can override it.
 - An explicit `--engine`, `LOCAL_CODER_ENGINE`, or a skill pinned to one engine (`ollama-coder`, `foundry-coder`) bypasses the rules.
 
 ### How requests are sent
@@ -210,7 +212,16 @@ For `code`, `test` and `refactor` the generated Python is checked with `ast.pars
 - Output that was cut off at the token limit is not "healed": a repair request cannot restore the missing part. It prints `[Self-Healing] skipped` and returns what it has, together with the truncation warning.
 - After the last attempt it prints `Giving up` and returns the best effort. **The output is not guaranteed to be valid**, so check the `[Self-Healing]` lines on stderr.
 - It checks syntax only. It does not run the code or the tests.
-- Pass `--no-heal` for anything that is not Python (Dockerfiles, shell, YAML, Markdown).
+- For anything that is not Python (Dockerfiles, shell, YAML, Markdown, ...) use `--language <name>` (`language` in `local_code`). It changes the prompt, which otherwise asks for Python, and turns the check off because there is nothing to parse; the result is returned unchecked, so verify it yourself (for example `bash -n script.sh`). `--no-heal` on its own only skips validation, the prompt would still ask for Python. `--language` applies to `code`; `test`, `refactor` and `review` work on Python.
+
+### Which code is taken from the answer
+The answer is reduced to code before it is validated or written to `--output`, in this order:
+1. the first ` ```python ` block;
+2. else the first fenced block of any language (the info string such as `bash` is not part of the code);
+3. else, if a fence was opened but never closed (a cut-off answer), everything after the opening fence line;
+4. else the whole answer.
+
+**Only one block is used.** If a model splits a solution across several blocks, or puts a usage example in a second one, everything after the first block is dropped. The built-in prompts ask for a single block; if a model still splits its answer, say so in the task ("one complete file in a single code block") or run again. The earlier standalone scripts joined every block that contained `def`, `class` or `import`; that pulled usage examples and repeated imports into the output, which broke more code than it rescued, so the shared code does not do it.
 
 ---
 

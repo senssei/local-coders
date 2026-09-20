@@ -26,4 +26,4 @@ If validation fails:
 
 Output that was cut off at the token limit is not repaired (that cannot restore the missing part); the loop prints `[Self-Healing] skipped` and the truncation warning applies. Repair tokens are added to the totals in the telemetry line.
 
-Pass `--no-heal` for non-Python output.
+Pass `--language <lang>` for non-Python output: it changes the prompt (which otherwise asks for Python) and turns the check off. `--no-heal` alone only skips validation.

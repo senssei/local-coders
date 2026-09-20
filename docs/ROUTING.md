@@ -1,7 +1,8 @@
 # Routing exceptions
 
-In AUTO mode `local_coder` picks an engine from a fixed order (Prism → Ollama → Foundry on Linux/WSL2, Ollama first on
-macOS). **Routing rules** are exceptions to that order, kept in JSON instead of code. They apply only in AUTO mode: an
+In AUTO mode `local_coder` picks an engine from a fixed order: **Ollama → Prism → Foundry on Linux/WSL2** and Ollama → Foundry → Prism on
+macOS. Ollama is first everywhere because, measured on an RTX 5070, it is the fastest and most predictable engine for coder models
+(see [Prism: measured behaviour](PRISM_LOCAL.md#-measured-behaviour)). **Routing rules** are exceptions to that order, kept in JSON instead of code. They apply only in AUTO mode: an
 explicit `--engine`, `LOCAL_CODER_ENGINE`, or a skill pinned to one engine (`ollama-coder`, `foundry-coder`) bypasses them.
 
 ## Precedence (strongest first)
@@ -49,10 +50,23 @@ with a message naming the rule, instead of quietly using the engine you excluded
 
 ## Built-in rules
 
-1. `task: test` → prefer `ollama` (Prism's phi-4-mini cuts test suites off at 4096 tokens).
-2. `model: *coder*` → avoid `prism` (ONNX coder models there run at 6–7 tok/s vs 70–80 on Ollama; RTX 5070).
+1. `model: *coder*` → avoid `prism` (its ONNX coder model decodes at ~30 tok/s vs 70–100 on Ollama and takes ~10 GB of a 12 GB GPU; RTX 5070).
 
-Override either with a rule of your own in the project or user file.
+That is the only one: Ollama already comes first, so no rule is needed to keep tests and code generation there (Prism's ONNX phi-4-mini loops
+on long test suites and long prompts can leave its GPU memory full; see prism-local #5 and #6). Override it with a rule of your own in the
+project or user file.
+
+### Putting Prism first for something
+Rules are how you opt back in to Prism, for a task or a whole project:
+```json
+{
+  "rules": [
+    {"when": {"task": "review"}, "prefer": ["prism"], "why": "phi-4-mini reviews are good enough and it is fast"},
+    {"when": {"profile": "fast"}, "prefer": ["prism", "ollama"], "why": "qwen3-0.6b on Prism for quick boilerplate"}
+  ]
+}
+```
+`prefer` is soft, so if Prism is not running the request still goes to Ollama.
 
 ## Seeing and checking what happens
 

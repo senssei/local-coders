@@ -410,6 +410,15 @@ class TestCli(InstallerCase):
         self.assertIn("local-coder", self.read(".cursor/mcp.json")["mcpServers"])
         self.assertIn("[mcp_servers.local-coder]", (self.home / ".codex" / "config.toml").read_text())
 
+    def test_cursor_agent_on_path_counts_as_cursor(self):
+        bin_dir = Path(self._tmp.name) / "cbin"
+        bin_dir.mkdir()
+        (bin_dir / "cursor-agent").write_text("#!/bin/sh\n")
+        (bin_dir / "cursor-agent").chmod(0o755)
+        with patch.dict(os.environ, {"PATH": str(bin_dir), "CODEX_HOME": ""}):
+            self.run_installer()
+        self.assertIn("local-coder", self.read(".cursor/mcp.json")["mcpServers"])
+
     def test_list_shows_every_harness(self):
         out = self.run_installer("--list")
         for key in install.HARNESSES:

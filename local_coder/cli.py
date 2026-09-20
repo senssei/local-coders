@@ -5,8 +5,16 @@ import os
 import sys
 
 from .client import DEFAULT_MAX_TOKENS, UnifiedLocalCoderClient
+from .prompts import normalize_language
 from .status import format_status
 from .telemetry import format_result_banner
+
+
+def _language(value: str) -> str:
+    try:
+        return normalize_language(value)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from None
 
 
 def main() -> None:
@@ -37,6 +45,12 @@ def main() -> None:
     code_p.add_argument("--model", help="Explicit model name or alias")
     code_p.add_argument("--profile", default="coding", choices=["coding", "fast", "reasoning"])
     code_p.add_argument("--output", help="Save output directly to specified file path")
+    code_p.add_argument(
+        "--language",
+        type=_language,
+        default="python",
+        help="Language to generate (default python; anything else, e.g. bash, dockerfile, yaml, is returned unchecked)",
+    )
     code_p.add_argument("--no-heal", action="store_true", help="Disable AST syntax self-healing")
 
     # Test subcommand
@@ -120,6 +134,7 @@ def main() -> None:
                 profile=args.profile,
                 self_heal=not args.no_heal,
                 max_tokens=args.max_tokens,
+                language=args.language,
             )
             print(format_result_banner(res, args.max_tokens), file=sys.stderr)
             write_out(code, args.output)

@@ -126,14 +126,18 @@ sequenceDiagram
 
 A healed candidate is also rejected when it is under 30% of the size of the code it replaces (the model dropped the content), and generated tests must contain at least one `test_*` function or `Test*` class. Details: [Self-healing](UNIFIED_LOCAL_CODER.md#-self-healing).
 
-### Disabling Validation
-When generating non-Python languages (e.g. Bash, Rust, Go, SQL), disable the AST compiler:
+### Which code is taken from the answer
+Only the first code block is used (` ```python ` first, else the first fenced block, else the whole answer); see [Which code is taken from the answer](UNIFIED_LOCAL_CODER.md#which-code-is-taken-from-the-answer). The older standalone script joined several blocks; this one does not.
+
+### Other languages
+For anything that is not Python (Bash, Rust, Go, SQL, YAML, Dockerfiles, ...) pass `--language`. It changes the prompt (it no longer asks for Python) and turns the AST check off, since there is nothing to parse:
 ```bash
 python3 .agents/skills/ollama-coder/scripts/ask_local.py code \
-  --task "Write an automated Docker compose script" \
-  --no-heal \
+  --task "Write a Docker compose file for a web app and a Redis cache" \
+  --language yaml \
   --output docker-compose.yml
 ```
+The result is returned unchecked. (`--no-heal` on its own only skips validation; the prompt still asks for Python.)
 
 ---
 

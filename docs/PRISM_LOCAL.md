@@ -100,22 +100,22 @@ Prism includes a native stdio MCP server, registered by `python3 install.py --co
 
 ## 📈 Measured behaviour
 
-One machine, one small prompt (a FizzBuzz function), warm models unless noted: RTX 5070 (12 GB), WSL2, 2026-09-20. Treat these as indicative, not a benchmark.
+One machine: RTX 5070 (12 GB), WSL2, Prism 0.2.0, 2026-09-20. Small samples; treat them as indicative, not a benchmark. Decode speed for a short FizzBuzz prompt, models warm:
 
-| Engine | Model | Decode speed |
-|:---|:---|:---:|
-| Prism (CUDA) | `phi-4-mini` (ONNX) | ~108 tok/s warm, ~40 on the first call after a model switch |
-| Prism (CUDA) | `qwen2.5-coder-7b` (ONNX) | 6–7 tok/s |
-| Ollama | `qwen2.5-coder:7b` | 70–80 tok/s |
-| Ollama | `phi4-mini` | 77–97 tok/s |
-| Foundry Local (CPU on WSL2) | `phi-3.5-mini` | ~6.6 tok/s |
+| Engine | Model | Decode speed | GPU memory after loading |
+|:---|:---|:---:|:---:|
+| Prism (CUDA) | `phi-4-mini` (ONNX) | 96–115 tok/s | ~5.5 GB |
+| Prism (CUDA) | `qwen2.5-coder-7b` (ONNX) | 26–31 tok/s | ~10.4 GB |
+| Ollama | `qwen2.5-coder:7b` | 70–100 tok/s | |
+| Ollama | `phi4-mini` | 77–97 tok/s | |
+| Foundry Local (CPU on WSL2) | `phi-3.5-mini` | ~6.6 tok/s | |
 
-What follows from it:
-- Prism's GPU path is real for `phi-4-mini` (GPU utilisation rose while it generated), but its ONNX `qwen2.5-coder` build reports `exported_for: CPU` and runs about ten times slower than the same model on Ollama.
-- Prism keeps one model resident. Alternating between models reloads them on each call, so measure with the same model twice in a row.
-- `phi-4-mini` on Prism cut generated test suites off at 4096 tokens where Ollama's `qwen2.5-coder:7b` finished them.
+Two behaviours to know about:
 
-That is why `local_coder` ships two [routing exceptions](ROUTING.md): `test` prefers Ollama, and an explicitly requested `*coder*` model avoids Prism. Both are ordinary rules you can override.
+- **A long prompt can leave the GPU full.** After a ~4000-token prompt on `phi-4-mini`, GPU memory stayed at 11.6 of 12.2 GB, even when idle. The next model load then crawled: `qwen2.5-coder-7b` took 85 s to the first token and decoded at 1.1 tok/s (against 0.4 s and 30 tok/s on a fresh server). With `PRISM_PREFILL_CHUNK=256` the same sequence left 6.2 GB in use and `qwen` ran normally. (Alternating between models on a fresh server is fine.) If Prism suddenly gets very slow after a long request, restart it or set `PRISM_PREFILL_CHUNK`.
+- **`phi-4-mini` loops on long test-generation prompts.** Asked for a pytest suite for a 58-line module (same prompt, temperature 0.1), Prism's ONNX build ran to the 4096-token limit with 83 test functions of which 10 were distinct, while Ollama's `phi4-mini` stopped after ~700 tokens with 9 distinct tests, also with Ollama's repetition penalty and top-k/top-p switched off. `frequency_penalty` and `repetition_penalty` reduced the repetition but did not stop it.
+
+That is why `local_coder` puts **Ollama first** in its default order (Prism is second on Linux/WSL2) and ships one [routing exception](ROUTING.md): an explicitly requested `*coder*` model avoids Prism (slower than Ollama, and ~10 GB of a 12 GB card leaves no headroom). Both are ordinary settings you can override; a `prefer: ["prism"]` rule brings Prism back to the front for a task or project. The `foundry-coder` skill and `foundry_mcp_server.py` are unaffected: they still target Prism first, then Foundry Local.
 
 ---
 

@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from .client import DEFAULT_MAX_TOKENS, EngineSpec, UnifiedLocalCoderClient
+from .prompts import normalize_language
 from .telemetry import format_result_banner
 from .types import CompletionResult
 
@@ -28,6 +29,13 @@ class Flavor:
     output_style: str  # "ollama": telemetry on stderr; "foundry": code and telemetry on stdout
     autostart_foundry: bool = False
     status: Callable[[UnifiedLocalCoderClient], None] | None = None
+
+
+def _language(value: str) -> str:
+    try:
+        return normalize_language(value)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from None
 
 
 def build_parser(flavor: Flavor) -> argparse.ArgumentParser:
@@ -53,6 +61,12 @@ def build_parser(flavor: Flavor) -> argparse.ArgumentParser:
     p_code = sub.add_parser("code", help="Generate functions, classes, and modules")
     p_code.add_argument("--task", required=True, help="Task description or prompt")
     p_code.add_argument("--files", nargs="*", default=[], help="Context file paths to inject")
+    p_code.add_argument(
+        "--language",
+        type=_language,
+        default="python",
+        help="Language to generate (default python; other languages, e.g. bash or yaml, are returned unchecked)",
+    )
     common(p_code)
 
     p_test = sub.add_parser("test", help="Generate unit tests for a source file")
@@ -158,6 +172,7 @@ def run(flavor: Flavor, argv: list[str] | None = None) -> None:
                 context_files=_read_context(args.files),
                 profile=args.profile,
                 self_heal=heal,
+                language=args.language,
                 **common,
             )
             _emit(flavor, code, res, args, "generated code")

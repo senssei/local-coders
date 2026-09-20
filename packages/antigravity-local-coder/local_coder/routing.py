@@ -22,17 +22,13 @@ WHEN_KEYS = ("task", "profile", "model", "platform")
 RULE_KEYS = ("when", "prefer", "avoid", "only", "why")
 PROJECT_FILE = Path(".local-coder") / "routing.json"
 
-# Exceptions measured on an RTX 5070 (2026-09-20). Lowest precedence, so any project or user rule overrides them.
+# Measured on an RTX 5070 (2026-09-20). Lowest precedence, so any project or user rule overrides it. Ollama is already
+# first in the default order (see EngineRouter.priority), so the only built-in exception is a hard one.
 BUILTIN_RULES: list[dict] = [
-    {
-        "when": {"task": "test"},
-        "prefer": ["ollama"],
-        "why": "phi-4-mini on Prism truncates test suites at 4096 tokens; Ollama's qwen2.5-coder finishes them",
-    },
     {
         "when": {"model": "*coder*"},
         "avoid": ["prism"],
-        "why": "ONNX coder models on Prism run at 6-7 tok/s (exported for CPU) vs 70-80 tok/s on Ollama",
+        "why": "ONNX coder models on Prism decode at ~30 tok/s vs 70-100 on Ollama and take ~10 GB of a 12 GB GPU",
     },
 ]
 

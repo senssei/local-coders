@@ -7,9 +7,9 @@ description: Unified cross-engine local coding skill. Offload code generation, u
 
 The **Unified Local Coder** enables AI coding agents and subagents to offload implementation routines, test authoring, security reviews, and refactoring to local LLMs with zero token cost.
 
-It probes the local inference engines and routes each request to the first one that is online in a fixed order (Prism → Ollama → Foundry on Linux/WSL2; Ollama first on macOS), with exceptions you can configure (`test` prefers Ollama; see `docs/ROUTING.md`):
-1. **Prism** (`http://127.0.0.1:5272/v1`): Direct NVIDIA CUDA GPU acceleration for ONNX Runtime GenAI models on Linux/WSL2.
-2. **Ollama** (`http://127.0.0.1:11434`): Apple Silicon Metal UMA or NVIDIA CUDA for GGUF models (`qwen2.5-coder:7b`, `llama3.1:8b`).
+It probes the local inference engines and routes each request to the first one that is online in a fixed order, with exceptions you can configure (see `docs/ROUTING.md`). Ollama is first everywhere; then Prism and Foundry Local on Linux/WSL2, Foundry Local and Prism on macOS:
+1. **Ollama** (`http://127.0.0.1:11434`): Apple Silicon Metal UMA or NVIDIA CUDA for GGUF models (`qwen2.5-coder:7b`, `llama3.1:8b`). The default and the most predictable engine for coder models.
+2. **Prism** (`http://127.0.0.1:5272/v1`): NVIDIA CUDA acceleration for ONNX Runtime GenAI models on Linux/WSL2. Second choice, and never used for an explicitly requested `*coder*` model.
 3. **Microsoft Foundry Local**: Automated fallback for local ONNX models.
 
 ---

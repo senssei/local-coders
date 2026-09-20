@@ -391,11 +391,12 @@ HARNESSES: dict[str, Harness] = {
         Harness(
             "cursor",
             "Cursor",
-            lambda c: _which_native("cursor") or (c.home / ".cursor").exists(),
+            lambda c: _which_native("cursor") or _which_native("cursor-agent") or (c.home / ".cursor").exists(),
             JsonMcp(lambda c: c.home / ".cursor" / "mcp.json"),
             lambda c: None,
-            verified=False,
-            note="~/.cursor/mcp.json (MCP only; Cursor has no SKILL.md directory to install into)",
+            verified=True,
+            note="~/.cursor/mcp.json, MCP only (Cursor has no SKILL.md directory). Checked with Cursor's CLI: "
+            "`cursor-agent mcp list` shows the servers as ready; the desktop app itself was not run",
         ),
         Harness(
             "codex",
@@ -559,7 +560,8 @@ def preflight(ctx: Ctx) -> None:
     if proc.returncode != 0:
         raise InstallError(
             f"{ctx.python} needs Python >= 3.10 with the 'requests' package.\n"
-            f"    fix: {ctx.python} -m pip install --user requests   (or pass --python /path/to/python)"
+            f"    fix: {ctx.python} -m pip install --user requests   (Debian/Ubuntu without pip: sudo apt install python3-requests)\n"
+            f"    or pass --python /path/to/python"
         )
 
 

@@ -20,6 +20,8 @@ from .prompts import (
     build_review_prompt,
     build_test_prompt,
     extract_code_block,
+    is_python,
+    normalize_language,
 )
 from .router import MODEL_FALLBACKS, MODEL_PROFILES, EngineRouter
 from .routing import RouteContext
@@ -371,7 +373,7 @@ class UnifiedLocalCoderClient:
             return self._combine(retry, [res]), bigger
         return res, budget
 
-    def _generate_python(
+    def _generate(
         self,
         messages: list[dict[str, str]],
         *,
@@ -384,8 +386,9 @@ class UnifiedLocalCoderClient:
         temperature: float,
         task: str,
         extra_check: Callable[[str], str | None] | None = None,
+        language: str = "python",
     ) -> tuple[str, CompletionResult]:
-        """Complete ``messages``, extract the Python block, and optionally AST-heal it."""
+        """Complete ``messages``, extract the code block, and (for Python only) optionally AST-heal it."""
         res, budget = self._complete_extendable(
             messages,
             max_tokens,
@@ -395,9 +398,9 @@ class UnifiedLocalCoderClient:
             temperature=temperature,
             task=task,
         )
-        raw_code = extract_code_block(res.content, "python")
+        raw_code = extract_code_block(res.content, language)
 
-        if not self_heal:
+        if not self_heal or not is_python(language):  # there is no syntax check for other languages
             return raw_code, res
         if res.truncated:
             # Asking the model to "fix" a file that was cut off mid-way cannot restore the missing part; it only
@@ -435,10 +438,13 @@ class UnifiedLocalCoderClient:
         max_retries: int = 2,
         max_tokens: int | None = None,
         temperature: float = 0.1,
+        language: str = "python",
     ) -> tuple[str, CompletionResult]:
-        """Generate Python code with optional automated AST self-healing."""
-        return self._generate_python(
-            build_code_prompt(task, context_files),
+        """Generate code (Python by default, with optional AST self-healing; other languages are returned unchecked)."""
+        language = normalize_language(language)
+        return self._generate(
+            build_code_prompt(task, context_files, language),
+            language=language,
             engine=engine,
             profile=profile,
             model=model,
@@ -463,7 +469,7 @@ class UnifiedLocalCoderClient:
         profile: str = "coding",
     ) -> tuple[str, CompletionResult]:
         """Generate automated unit tests."""
-        return self._generate_python(
+        return self._generate(
             build_test_prompt(source_code, file_path, framework, instructions),
             engine=engine,
             profile=profile,
@@ -515,7 +521,7 @@ class UnifiedLocalCoderClient:
         profile: str = "coding",
     ) -> tuple[str, CompletionResult]:
         """Refactor code with strict type hints and docstrings."""
-        return self._generate_python(
+        return self._generate(
             build_refactor_prompt(source_code, file_path, type_hints, docstrings, instructions),
             engine=engine,
             profile=profile,

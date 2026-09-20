@@ -96,6 +96,8 @@ Unlike basic wrappers, `ask_foundry.py` and `foundry_mcp_server.py` manage the F
 3. **Daemon Auto-Start**: If neither Prism nor the Foundry daemon answers, the tool runs `foundry server start` (only for these entry points; AUTO routing in `local_coder` never launches daemons).
 4. **AST Self-Healing Loop**: If generated code fails validation, the error is submitted back to the model with `temperature: 0.0`, at most twice; see [Self-healing](UNIFIED_LOCAL_CODER.md#-self-healing) for what it guarantees.
 
+> **Code extraction:** only the first code block of an answer is used (see [Which code is taken from the answer](UNIFIED_LOCAL_CODER.md#which-code-is-taken-from-the-answer)). The `foundry-coder` scripts still target Prism first, then Foundry Local, even though the unified `local-coder` now puts Ollama first.
+
 ## 🚀 Linux & WSL2 CUDA Acceleration via Prism (`prism-local`)
 
 Under Linux / WSL2, Microsoft Foundry Local CLI (`0.10.3`) relies on Windows WMI for GPU discovery, causing it to fail GPU detection and silently fall back to CPU execution (`~13 tok/s`).
@@ -106,7 +108,7 @@ To unlock full NVIDIA CUDA GPU acceleration on Linux / WSL2:
    prism serve --device cuda --port 5272
    ```
 2. `ask_foundry.py` and `foundry_mcp_server.py` automatically detect the active server on `http://127.0.0.1:5272/v1`.
-3. Calls to `phi-4-mini` run with the **CUDA Execution Provider** on your NVIDIA GPU without code changes. Not every Prism model is fast: its ONNX `qwen2.5-coder-7b` build measured 6–7 tok/s; see [Prism: measured behaviour](PRISM_LOCAL.md#-measured-behaviour).
+3. Calls to `phi-4-mini` run with the **CUDA Execution Provider** on your NVIDIA GPU without code changes. Not every Prism model is equally fast or light: its ONNX `qwen2.5-coder-7b` measured ~30 tok/s and ~10 GB of VRAM, and after a very long prompt the GPU memory can stay full and slow the next model load to a crawl; see [Prism: measured behaviour](PRISM_LOCAL.md#-measured-behaviour).
 
 ---
 

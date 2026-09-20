@@ -39,6 +39,10 @@ def engines(prism=True, ollama=True, foundry=False) -> list[EngineInfo]:
 def router_with(*raw: dict, online=(True, True, False)) -> EngineRouter:
     router = EngineRouter(policy=RoutingPolicy(rules=rules(*raw)))
     router.list_all_engines = lambda: engines(*online)
+    # explicit-engine resolution and failover call the individual discover_* methods; keep them off the network too
+    router.discover_prism = lambda: engines(*online)[0]
+    router.discover_ollama = lambda: engines(*online)[1]
+    router.discover_foundry = lambda: engines(*online)[2]
     return router
 
 
@@ -134,8 +138,15 @@ class TestLoadingAndPrecedence(unittest.TestCase):
         policy = self.load()
         self.assertEqual({r.source for r in policy.rules}, {"built-in"})
         self.assertEqual(policy.files, [])
-        self.assertEqual(policy.decide(LINUX_ORDER, RouteContext(task="test")).order[0], OLLAMA)
+        self.assertEqual([r.index for r in policy.rules], [1])  # the only built-in exception
+        self.assertIsNone(policy.decide(LINUX_ORDER, RouteContext(task="test")).rule)  # Ollama-first needs no rule
         self.assertNotIn(PRISM, policy.decide(LINUX_ORDER, RouteContext(model="qwen2.5-coder-7b")).order)
+        self.assertIn(PRISM, policy.decide(LINUX_ORDER, RouteContext(model="phi-4-mini")).order)
+
+    def test_default_order_is_ollama_first_on_every_platform(self):
+        for system, expected in (("Linux", [OLLAMA, PRISM, FOUNDRY]), ("Darwin", [OLLAMA, FOUNDRY, PRISM])):
+            with self.subTest(system=system), patch("local_coder.router.platform.system", return_value=system):
+                self.assertEqual(EngineRouter.priority(), expected)
 
     def test_project_beats_user_beats_builtin(self):
         self.write(
@@ -183,13 +194,13 @@ class TestLoadingAndPrecedence(unittest.TestCase):
 
 class TestRouterIntegration(unittest.TestCase):
     def test_rule_changes_the_auto_choice(self):
-        router = router_with({"when": {"task": "test"}, "prefer": ["ollama"]})
+        router = router_with({"when": {"task": "test"}, "prefer": ["prism"]})
         with patch("local_coder.router.platform.system", return_value="Linux"):
             self.assertEqual(
-                router.resolve_target_engine(EngineType.AUTO, RouteContext(task="test")).engine_type, OLLAMA
+                router.resolve_target_engine(EngineType.AUTO, RouteContext(task="test")).engine_type, PRISM
             )
             self.assertEqual(
-                router.resolve_target_engine(EngineType.AUTO, RouteContext(task="code")).engine_type, PRISM
+                router.resolve_target_engine(EngineType.AUTO, RouteContext(task="code")).engine_type, OLLAMA
             )
         self.assertEqual(router.last_decision.rule, None)
 
@@ -230,13 +241,13 @@ class TestCooldown(unittest.TestCase):
         router = router_with()
         router.cooldown_sec = 30
         with patch("local_coder.router.platform.system", return_value="Linux"):
-            self.assertEqual(router.rank_online(engines())[0].engine_type, PRISM)
-            router.mark_failed(PRISM)
             self.assertEqual(router.rank_online(engines())[0].engine_type, OLLAMA)
-            with patch("local_coder.router.time.monotonic", return_value=router._failed_at[PRISM] + 31):
-                self.assertEqual(router.rank_online(engines())[0].engine_type, PRISM)
-            router.mark_ok(PRISM)
+            router.mark_failed(OLLAMA)
             self.assertEqual(router.rank_online(engines())[0].engine_type, PRISM)
+            with patch("local_coder.router.time.monotonic", return_value=router._failed_at[OLLAMA] + 31):
+                self.assertEqual(router.rank_online(engines())[0].engine_type, OLLAMA)
+            router.mark_ok(OLLAMA)
+            self.assertEqual(router.rank_online(engines())[0].engine_type, OLLAMA)
 
     def test_everything_cooling_down_is_still_tried(self):
         router = router_with(online=(True, False, False))
@@ -289,14 +300,14 @@ class TestClient(unittest.TestCase):
         import requests
 
         client = self.make_client()
-        ok = MagicMock(status_code=200, json=lambda: {"message": {"content": "ok"}})
+        ok = MagicMock(status_code=200, json=lambda: {"choices": [{"message": {"content": "ok"}}]})
         with (
             patch("local_coder.router.platform.system", return_value="Linux"),
             patch("local_coder.client.requests.post", side_effect=[requests.exceptions.ConnectionError("down"), ok]),
         ):
             res = client.complete([{"role": "user", "content": "x"}], task="code")
-        self.assertEqual(res.engine, "Ollama")
-        self.assertTrue(client.router._cooling_down(PRISM))
+        self.assertEqual(res.engine, "Prism")  # Ollama is first and failed; Prism is the next allowed engine
+        self.assertTrue(client.router._cooling_down(OLLAMA))
 
 
 class TestExplain(unittest.TestCase):
@@ -309,7 +320,7 @@ class TestExplain(unittest.TestCase):
         self.assertIn("Routing rules (first match wins", text)
         self.assertIn("#1 [test.json]", text)
         self.assertRegex(text, r"review\s+-> Foundry")
-        self.assertRegex(text, r"code\s+-> Prism")
+        self.assertRegex(text, r"code\s+-> Ollama")
         self.assertNotIn("Routing rules", format_status(router))
 
     def test_explain_reports_when_no_allowed_engine_is_online(self):

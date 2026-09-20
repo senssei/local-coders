@@ -28,7 +28,7 @@ def handle_list_tools() -> list[dict]:
             "name": "local_code",
             "description": (
                 "Offload code generation to local LLMs (Prism CUDA, Ollama, or Foundry) with "
-                "automated AST self-healing and zero token cost."
+                "automated AST self-healing (Python) and zero token cost."
             ),
             "inputSchema": {
                 "type": "object",
@@ -37,6 +37,12 @@ def handle_list_tools() -> list[dict]:
                     "context_code": {
                         "type": "string",
                         "description": "Optional background code or interface to conform to.",
+                    },
+                    "language": {
+                        "type": "string",
+                        "default": "python",
+                        "description": "Language to generate. Python is AST-checked and self-healed; any other "
+                        "(bash, dockerfile, yaml, typescript, ...) is returned unchecked.",
                     },
                     "engine": {
                         "type": "string",
@@ -178,6 +184,7 @@ def _call_tool(tool_name: str, arguments: dict) -> str:
             model=arguments.get("model"),
             self_heal=True,
             max_tokens=max_tokens,
+            language=arguments.get("language", "python"),
         )
         return f"{code}\n\n{format_result_banner(res, max_tokens)}"
 

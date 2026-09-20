@@ -177,7 +177,7 @@ In Microsoft Foundry Local, models must be loaded into memory before `/v1/chat/c
 * If an agent runs `ask_local.py` or `ask_foundry.py` and sees:
   `[Self-Healing] Syntax error detected...`
   The tool feeds the Python traceback back into the local model to self-correct up to 2 times.
-* If generating non-Python output (e.g., Dockerfiles, shell scripts, Markdown, YAML), **always supply `--no-heal`** to prevent the AST compiler from rejecting valid non-Python code.
+* If generating non-Python output (e.g., Dockerfiles, shell scripts, Markdown, YAML), **always supply `--language <name>`** (for example `--language bash`): it stops the prompt from asking for Python and skips the AST check that would reject valid non-Python code. `--no-heal` alone only skips the check.
 
 ### 6. Mandatory Verification Gate
 Prior to concluding any modification or refactoring task, execute the complete unit test suite:
