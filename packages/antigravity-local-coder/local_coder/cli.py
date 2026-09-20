@@ -71,7 +71,8 @@ def main() -> None:
     ref_p.add_argument("--no-heal", action="store_true", help="Disable AST syntax self-healing")
 
     # Status subcommand
-    subparsers.add_parser("status", help="Display diagnostic health check across all local engines")
+    status_p = subparsers.add_parser("status", help="Display diagnostic health check across all local engines")
+    status_p.add_argument("--explain", action="store_true", help="Also show the routing rules and where each task goes")
 
     args = parser.parse_args()
     if not args.subcommand:
@@ -84,7 +85,7 @@ def main() -> None:
         parser.error(str(e))
 
     if args.subcommand == "status":
-        print(format_status(client.router))
+        print(format_status(client.router, explain=args.explain))
         sys.exit(0)
 
     # File loading helper

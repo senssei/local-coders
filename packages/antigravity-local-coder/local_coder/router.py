@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 
 import requests
 
+from .routing import RouteContext, RouteDecision, RoutingPolicy
 from .types import EngineInfo, EngineType
 
 DEFAULT_PRISM_URL = "http://127.0.0.1:5272/v1"
@@ -106,10 +107,16 @@ def detect_system_hardware() -> str:
 class EngineRouter:
     """Discovers local inference engines and routes completions across Prism, Ollama, and Foundry."""
 
-    def __init__(self):
+    def __init__(self, policy: RoutingPolicy | None = None):
         self.hardware = detect_system_hardware()
         # Off by default so AUTO routing never launches daemons; the foundry-coder entry points opt in.
         self.autostart_foundry = False
+        # Routing exceptions (validated now, so a bad file fails at start-up); only consulted in AUTO mode.
+        self.policy = policy or RoutingPolicy.load()
+        self.last_decision: RouteDecision | None = None
+        # An engine that just failed is skipped for a while so retries and healing loops do not wait on it again.
+        self.cooldown_sec = float(os.environ.get("LOCAL_CODER_COOLDOWN") or 30)
+        self._failed_at: dict[EngineType, float] = {}
 
     def discover_prism(self) -> EngineInfo:
         """Inspect Prism server status."""
@@ -237,7 +244,9 @@ class EngineRouter:
         return True
 
     def resolve_target_engine(
-        self, requested_engine: EngineType | str | Sequence[EngineType | str] = EngineType.AUTO
+        self,
+        requested_engine: EngineType | str | Sequence[EngineType | str] = EngineType.AUTO,
+        route: RouteContext | None = None,
     ) -> EngineInfo:
         """Select the best available engine.
 
@@ -245,6 +254,7 @@ class EngineRouter:
         1. On Linux/WSL2 with NVIDIA GPU: Prism (direct CUDA EP) -> Ollama (CUDA) -> Foundry.
         2. On macOS (Apple Silicon Metal): Ollama (native Metal) -> Foundry -> Prism.
         """
+        self.last_decision = None
         if isinstance(requested_engine, list | tuple):
             # Ordered preference, e.g. (PRISM, FOUNDRY): first one that is online wins.
             errors = []
@@ -283,12 +293,32 @@ class EngineRouter:
                 f"Foundry Local requested but offline at {info.base_url}. Start it with 'foundry server start'."
             )
 
-        # AUTO mode:
+        # AUTO mode: the routing rules decide which engines are allowed and in what order
         engines = self.list_all_engines()
-        ranked = self.rank_online(engines)
+        decision = self.policy.decide(self.priority(), route)
+        self.last_decision = decision
+        ranked = self.rank_online(engines, decision.order)
+        if ranked:
+            return ranked[0]
 
+        allowed = ", ".join(e.value for e in decision.order) or "none"
+        if decision.rule is not None and any(e.is_online for e in engines):
+            raise ConnectionError(
+                f"No allowed engine is online: {decision.rule.label()} allows only [{allowed}]. "
+                f"Start one of them, pass --engine explicitly, or adjust the rule ({decision.rule.why or 'no reason given'})."
+            )
         # If none online, return the first one with informative status
-        return ranked[0] if ranked else engines[0]
+        return engines[0]
+
+    def mark_failed(self, engine_type: EngineType) -> None:
+        self._failed_at[engine_type] = time.monotonic()
+
+    def mark_ok(self, engine_type: EngineType) -> None:
+        self._failed_at.pop(engine_type, None)
+
+    def _cooling_down(self, engine_type: EngineType) -> bool:
+        failed = self._failed_at.get(engine_type)
+        return failed is not None and time.monotonic() - failed < self.cooldown_sec
 
     @staticmethod
     def priority() -> list[EngineType]:
@@ -298,16 +328,24 @@ class EngineRouter:
         # Linux / WSL2 priority
         return [EngineType.PRISM, EngineType.OLLAMA, EngineType.FOUNDRY]
 
-    def rank_online(self, engines: list[EngineInfo]) -> list[EngineInfo]:
-        """Online engines in priority order, one per distinct endpoint.
+    def rank_online(
+        self, engines: list[EngineInfo], order: list[EngineType] | None = None, respect_cooldown: bool = True
+    ) -> list[EngineInfo]:
+        """Online engines in ``order`` (default: platform priority), one per distinct endpoint.
 
+        Engines missing from ``order`` are excluded, which is how routing rules keep an avoided engine out of failover.
         Prism and Foundry Local share ``127.0.0.1:5272`` by default, so both can report the same server as online;
-        only the higher-priority one is kept so failover never lands on the endpoint that just failed.
+        only the higher-priority one is kept so failover never lands on the endpoint that just failed. Engines in
+        cooldown are skipped unless that would leave nothing to try.
         """
-        order = {t: i for i, t in enumerate(self.priority())}
+        rank = {t: i for i, t in enumerate(order if order is not None else self.priority())}
+        online = [e for e in engines if e.is_online and e.engine_type in rank]
+        if respect_cooldown:
+            rested = [e for e in online if not self._cooling_down(e.engine_type)]
+            online = rested or online
         ranked: list[EngineInfo] = []
         seen_urls: set[str] = set()
-        for eng in sorted((e for e in engines if e.is_online), key=lambda e: order.get(e.engine_type, len(order))):
+        for eng in sorted(online, key=lambda e: rank[e.engine_type]):
             url = eng.base_url.rstrip("/")
             if url in seen_urls:
                 continue
@@ -315,7 +353,9 @@ class EngineRouter:
             ranked.append(eng)
         return ranked
 
-    def failover_candidates(self, failed: EngineInfo) -> list[EngineInfo]:
-        """Online engines on a different endpoint than ``failed``, best first."""
+    def failover_candidates(self, failed: EngineInfo, route: RouteContext | None = None) -> list[EngineInfo]:
+        """Allowed online engines on a different endpoint than ``failed``, best first."""
         failed_url = failed.base_url.rstrip("/")
-        return [e for e in self.rank_online(self.list_all_engines()) if e.base_url.rstrip("/") != failed_url]
+        order = self.policy.decide(self.priority(), route).order
+        candidates = [e for e in self.list_all_engines() if e.engine_type != failed.engine_type]
+        return [e for e in self.rank_online(candidates, order) if e.base_url.rstrip("/") != failed_url]

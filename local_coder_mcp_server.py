@@ -145,7 +145,16 @@ def handle_list_tools() -> list[dict]:
         {
             "name": "local_status",
             "description": "Get real-time diagnostic status of all 3 local engines (Prism, Ollama, Foundry) and GPU hardware.",
-            "inputSchema": {"type": "object", "properties": {}},
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "explain": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Also show the routing rules and which engine each task would use.",
+                    }
+                },
+            },
         },
         {
             "name": "list_local_models",
@@ -206,7 +215,7 @@ def _call_tool(tool_name: str, arguments: dict) -> str:
         return f"{code}\n\n{format_result_banner(res, max_tokens)}"
 
     if tool_name == "local_status":
-        return format_status(client.router, max_models=5)
+        return format_status(client.router, max_models=5, explain=bool(arguments.get("explain", False)))
 
     if tool_name == "list_local_models":
         all_models = {eng.name: eng.installed_models for eng in client.router.list_all_engines() if eng.is_online}

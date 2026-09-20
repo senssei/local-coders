@@ -45,7 +45,8 @@ python3 ask_coder.py code \
 
 Long outputs (tests, refactors of big files) are capped at `--max-tokens` (default 4096). If the cap is hit the
 result is flagged with a `⚠️ Output truncated` line; re-run with a larger `--max-tokens`. The default engine can be
-pinned with `LOCAL_CODER_ENGINE=auto|prism|ollama|foundry`.
+pinned with `LOCAL_CODER_ENGINE=auto|prism|ollama|foundry`. Exceptions to the AUTO order (e.g. `test` goes to Ollama)
+live in `.local-coder/routing.json`; see `ask_coder.py status --explain` and `docs/ROUTING.md`.
 
 ### 2. Automated Test Generation
 ```bash

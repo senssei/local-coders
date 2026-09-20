@@ -127,7 +127,11 @@ def run(flavor: Flavor, argv: list[str] | None = None) -> None:
         parser.print_help()
         sys.exit(1)
 
-    client = UnifiedLocalCoderClient()
+    try:
+        client = UnifiedLocalCoderClient()
+    except ValueError as e:  # e.g. an invalid routing file
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
     client.router.autostart_foundry = flavor.autostart_foundry
 
     if args.subcommand == "status":

@@ -55,7 +55,7 @@ wrappers around `install.py`. A standalone, independently distributable copy of 
 
 ## Docs
 
-[Unified Cross-Engine Coder](docs/UNIFIED_LOCAL_CODER.md) · [Prism connector](docs/PRISM_LOCAL.md) ·
+[Unified Cross-Engine Coder](docs/UNIFIED_LOCAL_CODER.md) · [Routing exceptions](docs/ROUTING.md) · [Prism connector](docs/PRISM_LOCAL.md) ·
 [Ollama coder skill](docs/OLLAMA_CODER_SKILL.md) · [Foundry coder skill](docs/FOUNDRY_CODER_SKILL.md) ·
 [MCP servers](docs/MCP_SERVER.md) · [Tutorial: agent integration](docs/tutorials/04_AGENT_INTEGRATION_MCP.md)
 

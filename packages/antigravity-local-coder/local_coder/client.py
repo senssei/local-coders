@@ -20,6 +20,7 @@ from .prompts import (
     extract_code_block,
 )
 from .router import MODEL_PROFILES, EngineRouter
+from .routing import RouteContext
 from .telemetry import calculate_savings
 from .types import CompletionResult, EngineInfo, EngineType
 
@@ -54,6 +55,18 @@ class UnifiedLocalCoderClient:
             raise ValueError(f"Unknown engine {chosen!r}; expected one of: {valid}") from None
         self.timeout_sec = timeout_sec
         self.num_ctx = int(os.environ.get("LOCAL_CODER_NUM_CTX") or DEFAULT_NUM_CTX)
+        self._announced: set[tuple[str, int]] = set()
+
+    def _announce_route(self, info: EngineInfo) -> None:
+        """Say once per rule why a routing exception picked this engine (AUTO mode only)."""
+        decision = self.router.last_decision
+        if decision is None or decision.rule is None:
+            return
+        key = (decision.rule.source, decision.rule.index)
+        if key not in self._announced:
+            self._announced.add(key)
+            sys.stderr.write(f"  [route] {info.name}: {decision.describe()}\n")
+            sys.stderr.flush()
 
     @staticmethod
     def match_installed_model(info: EngineInfo, name: str) -> str | None:
@@ -77,9 +90,12 @@ class UnifiedLocalCoderClient:
         engine: EngineSpec | None = None,
         profile: str | None = None,
         model: str | None = None,
+        task: str | None = None,
     ) -> tuple[EngineInfo, str]:
         """Resolve the target engine and best matching model name."""
-        target_engine_info = self.router.resolve_target_engine(engine or self.default_engine)
+        route = RouteContext(task=task, profile=profile, model=model)
+        target_engine_info = self.router.resolve_target_engine(engine or self.default_engine, route)
+        self._announce_route(target_engine_info)
         engine_key = target_engine_info.engine_type.value
 
         if model:
@@ -170,9 +186,10 @@ class UnifiedLocalCoderClient:
         model: str | None = None,
         temperature: float = 0.2,
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        task: str | None = None,
     ) -> CompletionResult:
         """Send chat completion request to the resolved local engine."""
-        engine_info, target_model = self.resolve_engine_and_model(engine, profile, model)
+        engine_info, target_model = self.resolve_engine_and_model(engine, profile, model, task)
         url, payload = self._build_request(engine_info, target_model, messages, temperature, max_tokens)
 
         t0 = time.perf_counter()
@@ -180,8 +197,11 @@ class UnifiedLocalCoderClient:
             resp = requests.post(url, json=payload, timeout=self.timeout_sec)
         except requests.exceptions.RequestException as e:
             # Attempt failover to backup engine if in AUTO mode
+            self.router.mark_failed(engine_info.engine_type)
             if (engine or self.default_engine) == EngineType.AUTO:
-                backup_engines = self.router.failover_candidates(engine_info)
+                backup_engines = self.router.failover_candidates(
+                    engine_info, RouteContext(task=task, profile=profile, model=model)
+                )
                 if backup_engines:
                     backup = backup_engines[0]
                     sys.stderr.write(
@@ -194,6 +214,7 @@ class UnifiedLocalCoderClient:
                         profile=profile,
                         temperature=temperature,
                         max_tokens=max_tokens,
+                        task=task,
                     )
             raise ConnectionError(f"Failed connecting to {engine_info.name} at {url}: {e}") from e
 
@@ -208,6 +229,7 @@ class UnifiedLocalCoderClient:
                 except Exception:
                     pass
 
+        self.router.mark_ok(engine_info.engine_type)
         duration = max(time.perf_counter() - t0, 0.001)
 
         if resp.status_code != 200:
@@ -248,11 +270,18 @@ class UnifiedLocalCoderClient:
         max_retries: int,
         max_tokens: int,
         temperature: float,
+        task: str,
         extra_check: Callable[[str], str | None] | None = None,
     ) -> tuple[str, CompletionResult]:
         """Complete ``messages``, extract the Python block, and optionally AST-heal it."""
         res = self.complete(
-            messages, engine=engine, profile=profile, model=model, temperature=temperature, max_tokens=max_tokens
+            messages,
+            engine=engine,
+            profile=profile,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            task=task,
         )
         raw_code = extract_code_block(res.content, "python")
 
@@ -267,6 +296,7 @@ class UnifiedLocalCoderClient:
                 model=model,
                 temperature=0.0,
                 max_tokens=max_tokens,
+                task=task,
             )
             return extract_code_block(heal_res.content, "python")
 
@@ -295,6 +325,7 @@ class UnifiedLocalCoderClient:
             max_retries=max_retries,
             max_tokens=max_tokens,
             temperature=temperature,
+            task="code",
         )
 
     def generate_tests(
@@ -320,6 +351,7 @@ class UnifiedLocalCoderClient:
             max_retries=2,
             max_tokens=max_tokens,
             temperature=temperature,
+            task="test",
             extra_check=_requires_tests,
         )
 
@@ -337,7 +369,13 @@ class UnifiedLocalCoderClient:
         """Perform security and architectural code review."""
         messages = build_review_prompt(source_code, file_path, focus)
         return self.complete(
-            messages, engine=engine, profile=profile, model=model, temperature=temperature, max_tokens=max_tokens
+            messages,
+            engine=engine,
+            profile=profile,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            task="review",
         )
 
     def refactor_code(
@@ -364,4 +402,5 @@ class UnifiedLocalCoderClient:
             max_retries=2,
             max_tokens=max_tokens,
             temperature=temperature,
+            task="refactor",
         )
