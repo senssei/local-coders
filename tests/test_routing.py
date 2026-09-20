@@ -15,10 +15,10 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from local_coder.client import UnifiedLocalCoderClient
+from local_coder.models import EngineInfo, EngineType
 from local_coder.router import EngineRouter
 from local_coder.routing import RouteContext, RoutingConfigError, RoutingPolicy, parse_rules
 from local_coder.status import format_status
-from local_coder.types import EngineInfo, EngineType
 
 PRISM, OLLAMA, FOUNDRY = EngineType.PRISM, EngineType.OLLAMA, EngineType.FOUNDRY
 LINUX_ORDER = [PRISM, OLLAMA, FOUNDRY]

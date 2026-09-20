@@ -12,7 +12,9 @@ from collections.abc import Callable, Sequence
 
 import requests
 
+from . import perf
 from .healing import heal_code_iterative
+from .models import CompletionResult, EngineInfo, EngineType
 from .prompts import (
     build_code_prompt,
     build_heal_prompt,
@@ -26,7 +28,6 @@ from .prompts import (
 from .router import MODEL_FALLBACKS, MODEL_PROFILES, EngineRouter
 from .routing import RouteContext
 from .telemetry import calculate_savings
-from .types import CompletionResult, EngineInfo, EngineType
 
 DEFAULT_MAX_TOKENS = 4096
 # When the caller did not choose a limit and the output is cut off, the request is repeated once with a larger one.
@@ -252,6 +253,7 @@ class UnifiedLocalCoderClient:
         except requests.exceptions.RequestException as e:
             # Attempt failover to backup engine if in AUTO mode
             self.router.mark_failed(engine_info.engine_type)
+            perf.record_failure(engine_info.name, str(e))
             if (engine or self.default_engine) == EngineType.AUTO:
                 backup_engines = self.router.failover_candidates(
                     engine_info, RouteContext(task=task, profile=profile, model=model)
@@ -296,7 +298,7 @@ class UnifiedLocalCoderClient:
         tok_per_sec = parsed["reported_tps"] or completion_tokens / duration
         saved_tokens, saved_usd = calculate_savings(prompt_tokens, completion_tokens)
 
-        return CompletionResult(
+        result = CompletionResult(
             content=parsed["content"],
             model=target_model,
             engine=engine_info.name,
@@ -311,6 +313,18 @@ class UnifiedLocalCoderClient:
             max_tokens=max_tokens,
             raw_response=data,
         )
+        perf.record_call(
+            engine=result.engine,
+            model=result.model,
+            task=task,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
+            duration_s=result.duration_s,
+            tokens_per_sec=result.tokens_per_sec,
+            saved_usd=result.saved_usd,
+            truncated=result.truncated,
+        )
+        return result
 
     def _load_model_and_retry(
         self, info: EngineInfo, model: str, url: str, payload: dict, resp: requests.Response
@@ -492,9 +506,10 @@ class UnifiedLocalCoderClient:
         max_tokens: int | None = None,
         temperature: float = 0.2,
         profile: str = "reasoning",
+        language: str | None = None,
     ) -> CompletionResult:
-        """Perform security and architectural code review."""
-        messages = build_review_prompt(source_code, file_path, focus)
+        """Perform security and architectural code review (language: as given, else guessed from ``file_path``)."""
+        messages = build_review_prompt(source_code, file_path, focus, language)
         res, _ = self._complete_extendable(
             messages,
             max_tokens,

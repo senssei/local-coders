@@ -29,9 +29,10 @@ The repository provides modular and unified stdio MCP servers:
 | :--- | :--- | :--- |
 | **`local_code`** | `task` *(str)*, `context_code` *(opt str)*, `engine` *(opt str)*, `profile` *(opt str)*, `model` *(opt str)*, `max_tokens` *(opt int)* | Generates Python code with AST self-healing, routing across Prism, Ollama, or Foundry. |
 | **`local_test`** | `code` *(str)*, `file_path` *(opt str)*, `framework` *(opt str)*, `engine` *(opt str)*, `max_tokens` *(opt int)* | Authors comprehensive unit tests (`pytest` or `unittest`) with edge cases and mocks. |
-| **`local_code_review`** | `code` *(str)*, `file_path` *(opt str)*, `focus` *(opt str)*, `engine` *(opt str)*, `max_tokens` *(opt int)* | Audits code for security vulnerabilities, race conditions, and performance bottlenecks. |
+| **`local_code_review`** | `code` *(str)*, `file_path` *(opt str)*, `focus` *(opt str)*, `language` *(opt str; default: guessed from `file_path`)*, `engine` *(opt str)*, `max_tokens` *(opt int)* | Audits code for security vulnerabilities, race conditions, and performance bottlenecks. |
 | **`local_refactor`** | `code` *(str)*, `file_path` *(opt str)*, `type_hints` *(opt bool)*, `docstrings` *(opt bool)*, `engine` *(opt str)*, `max_tokens` *(opt int)* | Injects strict type annotations (`typing`) and PEP 257 docstrings. |
 | **`local_status`** | `explain` *(opt bool)* | Reports hardware, engines, endpoints and latency; `explain` adds the active [routing rules](ROUTING.md). |
+| **`local_perf`** | *None* | Latest call (engine, model, tokens/s) and today's totals; the data behind the [status line](STATUSLINE.md). |
 | **`list_local_models`** | *None* | Discovers and aggregates all installed models across Prism, Ollama, and Foundry. |
 
 ---
@@ -137,7 +138,7 @@ Add to your `claude_desktop_config.json` (`~/Library/Application Support/Claude/
 ---
 
 ### C. Cursor & Windsurf
-`python3 install.py --harness cursor` writes `~/.cursor/mcp.json` for you (for Windsurf and other clients use `--mcp-json PATH`). It was checked with Cursor's CLI (`cursor-agent mcp list` shows the servers as `ready`); the desktop app was not started, and Cursor has no skills directory, so only the tools are registered. By hand, add to `~/.cursor/mcp.json`:
+`python3 install.py --harness cursor` writes `~/.cursor/mcp.json` for you (for Windsurf and other clients use `--mcp-json PATH`). It was checked with Cursor's CLI (`cursor-agent mcp list` shows the servers as `ready`); the desktop app was not started. Cursor has no skills directory, so only the tools are registered; `python3 install.py --cursor-rules DIR` adds a project rule (`.cursor/rules/local-coder.mdc`) that tells Cursor when to use them. By hand, add to `~/.cursor/mcp.json`:
 
 ```json
 {

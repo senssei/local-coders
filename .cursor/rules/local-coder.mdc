@@ -1,0 +1,32 @@
+---
+description: Offload code generation, unit tests, code review and refactoring to local LLMs through the local-coder MCP server (no cloud tokens). Use for boilerplate, test suites, audits and typing/docstring passes.
+globs:
+alwaysApply: false
+---
+
+# Local coder (MCP server `local-coder`)
+
+The `local-coder` MCP server runs a model on this machine (Ollama first, then Prism and Foundry Local). Prefer it for routine work that
+does not need a frontier model: it costs no cloud tokens and nothing leaves the machine.
+
+## Which tool for what
+
+| Task | Tool |
+|---|---|
+| New function, class, module or boilerplate | `local_code` (`task`, optional `context_code`, `language`) |
+| Unit tests for existing Python code | `local_test` (`code`, `file_path`, `framework`) |
+| Security / concurrency / bug review | `local_code_review` (`code`, `file_path`, `focus`) |
+| Add type hints and docstrings | `local_refactor` (`code`, `file_path`) |
+| Which engines are up, and where a task would go | `local_status` (`explain: true` shows the routing rules) |
+| Speed and today's local usage | `local_perf` |
+| Installed models | `list_local_models` |
+
+## How to use it well
+
+- Give `local_code` a precise task and the interface it must fit (`context_code`). Small, well-scoped requests work best.
+- Pass `language` for anything that is not Python (`bash`, `dockerfile`, `yaml`, ...). Non-Python output is **not checked**: run or lint it yourself.
+- Python output is syntax-checked and retried, but that is all it checks. **Always run the tests** before relying on generated code, and read
+  the `[Self-Healing]` lines: after the last retry the result may still be invalid.
+- If a result ends with `⚠️ Output truncated`, call again with a larger `max_tokens`.
+- `local_test` and `local_refactor` work on Python; `local_code_review` guesses the language from `file_path`.
+- Leave `engine` unset. Set it only to force one (`ollama`, `prism`, `foundry`).

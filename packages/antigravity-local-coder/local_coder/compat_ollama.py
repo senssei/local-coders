@@ -8,8 +8,8 @@ import requests
 from .client import UnifiedLocalCoderClient
 from .compat_cli import Flavor, run
 from .mcp import StdioMCPServer
+from .models import CompletionResult, EngineType
 from .router import normalize_ollama_host
-from .types import CompletionResult, EngineType
 
 DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "qwen2.5-coder:7b")
 

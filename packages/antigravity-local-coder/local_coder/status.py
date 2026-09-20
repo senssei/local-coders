@@ -1,8 +1,8 @@
 """Human-readable engine status shared by the CLI and the MCP server."""
 
+from .models import EngineInfo
 from .router import EngineRouter
 from .routing import TASKS, RouteContext
-from .types import EngineInfo
 
 
 def format_status(router: EngineRouter, max_models: int = 4, explain: bool = False) -> str:

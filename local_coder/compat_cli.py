@@ -11,9 +11,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from .client import DEFAULT_MAX_TOKENS, EngineSpec, UnifiedLocalCoderClient
+from .models import CompletionResult
 from .prompts import normalize_language
 from .telemetry import format_result_banner
-from .types import CompletionResult
 
 SUBCOMMANDS = ("code", "test", "review", "refactor", "status")
 
@@ -78,6 +78,9 @@ def build_parser(flavor: Flavor) -> argparse.ArgumentParser:
     p_review = sub.add_parser("review", help="Review code for bugs, race conditions, and security")
     p_review.add_argument("--file", required=True, help="File to review")
     p_review.add_argument("--focus", default="bugs, race conditions, edge cases, security", help="Focus areas")
+    p_review.add_argument(
+        "--language", type=_language, default=None, help="Language of the file (default: guessed from its extension)"
+    )
     common(p_review, profile_default=flavor.review_profile)
 
     p_refactor = sub.add_parser("refactor", help="Refactor code with type hints and docstrings")
@@ -189,7 +192,12 @@ def run(flavor: Flavor, argv: list[str] | None = None) -> None:
             _emit(flavor, code, res, args, "unit tests")
         elif args.subcommand == "review":
             res = client.review_code(
-                _read_source(args.file), args.file, focus=args.focus, profile=args.profile, **common
+                _read_source(args.file),
+                args.file,
+                focus=args.focus,
+                profile=args.profile,
+                language=args.language,
+                **common,
             )
             _emit(flavor, res.content, res, args, "review")
         elif args.subcommand == "refactor":

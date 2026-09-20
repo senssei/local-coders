@@ -12,8 +12,8 @@ from urllib.parse import urlsplit
 
 import requests
 
+from .models import EngineInfo, EngineType
 from .routing import RouteContext, RouteDecision, RoutingPolicy
-from .types import EngineInfo, EngineType
 
 DEFAULT_PRISM_URL = "http://127.0.0.1:5272/v1"
 DEFAULT_OLLAMA_V1_URL = "http://localhost:11434/v1"

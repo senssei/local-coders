@@ -2,7 +2,7 @@
 
 import os
 
-from .types import CompletionResult
+from .models import CompletionResult
 
 # Reference prices (USD per 1M tokens) for the "cloud tokens saved" estimate. They stand for a Sonnet-class frontier
 # model and are a notional baseline, not a bill; override with LOCAL_CODER_PRICE_PROMPT / LOCAL_CODER_PRICE_COMPLETION.

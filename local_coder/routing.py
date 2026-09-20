@@ -13,7 +13,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .types import EngineType
+from .models import EngineType
 
 ENGINE_NAMES = tuple(t.value for t in EngineType if t != EngineType.AUTO)
 TASKS = ("code", "test", "review", "refactor")

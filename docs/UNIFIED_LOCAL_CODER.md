@@ -81,9 +81,10 @@ ask_coder.py [--engine auto|prism|ollama|foundry] <code|test|review|refactor|sta
 |---|---|
 | `code` | `--task` *(required)*, `--files F…`, `--model`, `--profile coding\|fast\|reasoning`, `--language`, `--output`, `--no-heal`, `--max-tokens` |
 | `test` | `--file` *(required)*, `--framework pytest\|unittest`, `--model`, `--output`, `--no-heal`, `--max-tokens` |
-| `review` | `--file` *(required)*, `--focus`, `--model`, `--output`, `--max-tokens` |
+| `review` | `--file` *(required)*, `--focus`, `--language` *(default: guessed from the file extension)*, `--model`, `--output`, `--max-tokens` |
 | `refactor` | `--file` *(required)*, `--type-hints/--no-type-hints`, `--docstrings/--no-docstrings` *(both on by default)*, `--model`, `--output`, `--no-heal`, `--max-tokens` |
 | `status` | `--explain` |
+| `perf` | `--line` *(default)* or `--json`, `--max-age`, `--color`: the latest call and today's totals, for [status lines](STATUSLINE.md) |
 
 `--max-tokens` defaults to 4096 and is doubled once (up to 16384) if the output is cut off; a value you pass explicitly is always respected. With no `--engine` the engine comes from `LOCAL_CODER_ENGINE`, else AUTO.
 
@@ -140,9 +141,10 @@ python3 ask_coder.py --engine foundry code --task "..."
 |---|---|---|
 | `local_code` | `task` *(required)*, `context_code`, `language`, `engine`, `profile`, `model`, `max_tokens` | Generates code: Python with AST self-healing, other languages unchecked. |
 | `local_test` | `code` *(required)*, `file_path`, `framework`, `engine`, `max_tokens` | Generates a `pytest` or `unittest` suite. |
-| `local_code_review` | `code` *(required)*, `file_path`, `focus`, `engine`, `max_tokens` | Audits code for security, races and bottlenecks. |
+| `local_code_review` | `code` *(required)*, `file_path`, `focus`, `language`, `engine`, `max_tokens` | Audits code for security, races and bottlenecks. |
 | `local_refactor` | `code` *(required)*, `file_path`, `type_hints`, `docstrings`, `engine`, `max_tokens` | Adds type annotations and docstrings. |
 | `local_status` | `explain` | Hardware, engines, latency, models; `explain: true` adds routing rules. |
+| `local_perf` | _none_ | Engine, model and speed of the latest calls plus today's totals ([status line](STATUSLINE.md) data). |
 | `list_local_models` | _none_ | Models on every engine that is online. |
 
 `engine` is one of `auto`, `prism`, `ollama`, `foundry`; omitted means `LOCAL_CODER_ENGINE`, else auto.
@@ -196,6 +198,7 @@ Ollama is first on both because, on the machine this was measured on (RTX 5070, 
 | `LOCAL_CODER_ROUTING` | Routing file to use instead of the project/user files, or `none` |
 | `LOCAL_CODER_COOLDOWN` | Seconds a failed engine is skipped (default 30) |
 | `LOCAL_CODER_NUM_CTX` | Ollama context window (default 8192) |
+| `LOCAL_CODER_PERF`, `LOCAL_CODER_STATE_DIR` | `0` stops recording call performance; where the state file lives (default `~/.local/state/local-coders`) |
 | `LOCAL_CODER_DISCOVERY_TTL` | Seconds an engine scan is cached (default 5, `0` disables) |
 | `LOCAL_CODER_PRICE_PROMPT`, `LOCAL_CODER_PRICE_COMPLETION` | Reference USD per 1M tokens for the savings estimate (default 3 and 15) |
 | `OLLAMA_HOST` | Ollama address; `host`, `host:port`, `0.0.0.0` and a trailing `/v1` are accepted |
@@ -212,7 +215,7 @@ For `code`, `test` and `refactor` the generated Python is checked with `ast.pars
 - Output that was cut off at the token limit is not "healed": a repair request cannot restore the missing part. It prints `[Self-Healing] skipped` and returns what it has, together with the truncation warning.
 - After the last attempt it prints `Giving up` and returns the best effort. **The output is not guaranteed to be valid**, so check the `[Self-Healing]` lines on stderr.
 - It checks syntax only. It does not run the code or the tests.
-- For anything that is not Python (Dockerfiles, shell, YAML, Markdown, ...) use `--language <name>` (`language` in `local_code`). It changes the prompt, which otherwise asks for Python, and turns the check off because there is nothing to parse; the result is returned unchecked, so verify it yourself (for example `bash -n script.sh`). `--no-heal` on its own only skips validation, the prompt would still ask for Python. `--language` applies to `code`; `test`, `refactor` and `review` work on Python.
+- For anything that is not Python (Dockerfiles, shell, YAML, Markdown, ...) use `--language <name>` (`language` in `local_code`). It changes the prompt, which otherwise asks for Python, and turns the check off because there is nothing to parse; the result is returned unchecked, so verify it yourself (for example `bash -n script.sh`). `--no-heal` on its own only skips validation, the prompt would still ask for Python. `--language` applies to `code` and `review`; `review` guesses it from the file extension when you do not give one. `test` and `refactor` work on Python.
 
 ### Which code is taken from the answer
 The answer is reduced to code before it is validated or written to `--output`, in this order:

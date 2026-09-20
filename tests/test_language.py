@@ -4,6 +4,7 @@ import contextlib
 import io
 import os
 import sys
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -14,8 +15,15 @@ if REPO_ROOT not in sys.path:
 import local_coder_mcp_server
 from local_coder import cli, compat_foundry, compat_ollama
 from local_coder.client import UnifiedLocalCoderClient
-from local_coder.prompts import build_code_prompt, is_python, normalize_language, system_coder
-from local_coder.types import CompletionResult, EngineInfo, EngineType
+from local_coder.models import CompletionResult, EngineInfo, EngineType
+from local_coder.prompts import (
+    build_code_prompt,
+    build_review_prompt,
+    is_python,
+    language_for_path,
+    normalize_language,
+    system_coder,
+)
 
 
 def reply(text: str):
@@ -94,6 +102,45 @@ class TestClientLanguage(unittest.TestCase):
             self.client.generate_code("t", language="bash; rm")
 
 
+class TestReviewLanguage(unittest.TestCase):
+    def test_language_is_guessed_from_the_name_or_extension(self):
+        cases = {
+            "src/app.py": "python", "a/b/deploy.SH": "bash", "x.ts": "typescript", "Dockerfile": "dockerfile",
+            "path/to/Makefile": "makefile", "config.yml": "yaml", "main.go": "go", "C:\\proj\\Main.java": "java",
+            "noextension": None, "archive.tar.gz": None, ".hidden": None, "": None, None: None,
+        }  # fmt: skip
+        for path, expected in cases.items():
+            with self.subTest(path=path):
+                self.assertEqual(language_for_path(path), expected)
+
+    def test_review_prompt_fences_the_code_with_the_right_language(self):
+        def fence(path, language=None):
+            user = build_review_prompt("CODE", path, None, language)[1]["content"]
+            return user.split("\n")[1]
+
+        self.assertEqual(fence("module.py"), "```python")  # unchanged for Python
+        self.assertEqual(fence("deploy.sh"), "```bash")
+        self.assertEqual(fence("unknown.xyz"), "```")  # not assumed to be Python any more
+        self.assertEqual(fence("deploy.sh", "PY"), "```python")  # an explicit language wins
+        with self.assertRaises(ValueError):
+            build_review_prompt("CODE", "a.py", None, "bash; rm")
+
+    def test_client_passes_the_language_into_the_prompt(self):
+        client = UnifiedLocalCoderClient()
+        info = EngineInfo(
+            "Ollama", EngineType.OLLAMA, "http://localhost:11434/v1", True, installed_models=["llama3.1:8b"]
+        )
+        with (
+            patch.object(client.router, "resolve_target_engine", return_value=info),
+            patch("local_coder.client.requests.post", return_value=reply("looks fine")) as post,
+        ):
+            client.review_code("echo hi", "deploy.sh")
+            client.review_code("echo hi", "deploy.sh", language="zsh")
+        prompts = [c.kwargs["json"]["messages"][1]["content"] for c in post.call_args_list]
+        self.assertIn("```bash\necho hi", prompts[0])
+        self.assertIn("```zsh\necho hi", prompts[1])
+
+
 def run(main, argv):
     out, err = io.StringIO(), io.StringIO()
     code = 0
@@ -135,6 +182,32 @@ class TestCliLanguage(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn("Invalid language", err)
 
+    def test_review_language_reaches_the_client_from_every_cli(self):
+        self.client.review_code.return_value = CompletionResult("ok", "m", "E")
+        with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as f:
+            f.write("echo hi\n")
+        self.addCleanup(os.remove, f.name)
+        with (
+            patch("local_coder.cli.UnifiedLocalCoderClient", return_value=self.client),
+            patch.object(sys, "argv", ["ask_coder.py", "review", "--file", f.name, "--language", "bash"]),
+        ):
+            run(lambda _argv: cli.main(), None)
+        self.assertEqual(self.client.review_code.call_args.kwargs["language"], "bash")
+        with (
+            patch("local_coder.cli.UnifiedLocalCoderClient", return_value=self.client),
+            patch.object(sys, "argv", ["ask_coder.py", "review", "--file", f.name]),
+        ):
+            run(lambda _argv: cli.main(), None)
+        self.assertIsNone(self.client.review_code.call_args.kwargs["language"])  # inferred later from the extension
+        for module in (compat_ollama, compat_foundry):
+            with (
+                self.subTest(module=module.__name__),
+                patch("local_coder.compat_cli.UnifiedLocalCoderClient", return_value=self.client),
+            ):
+                _, _, rc = run(module.cli_main, ["review", "--file", f.name, "--language", "yaml"])
+            self.assertEqual(rc, 0)
+            self.assertEqual(self.client.review_code.call_args.kwargs["language"], "yaml")
+
     def test_legacy_clis_pass_language(self):
         for module in (compat_ollama, compat_foundry):
             with (
@@ -151,6 +224,20 @@ class TestMcpLanguage(unittest.TestCase):
         tools = {t["name"]: t for t in local_coder_mcp_server.handle_list_tools()}
         self.assertIn("language", tools["local_code"]["inputSchema"]["properties"])
         self.assertNotIn("language", tools["local_test"]["inputSchema"]["properties"])
+
+    def test_review_tool_advertises_and_forwards_language(self):
+        tools = {t["name"]: t for t in local_coder_mcp_server.handle_list_tools()}
+        self.assertIn("language", tools["local_code_review"]["inputSchema"]["properties"])
+        res = CompletionResult("fine", "m", "E")
+        with patch.object(local_coder_mcp_server.client, "review_code", return_value=res) as review:
+            local_coder_mcp_server.handle_call_tool(
+                1, "local_code_review", {"code": "x", "file_path": "a.sh", "language": "bash"}
+            )
+            self.assertEqual(review.call_args.kwargs["language"], "bash")
+            local_coder_mcp_server.handle_call_tool(
+                2, "local_code_review", {"code": "x", "file_path": "a.sh", "language": ""}
+            )
+            self.assertIsNone(review.call_args.kwargs["language"])  # empty means: guess from the path
 
     def test_language_is_forwarded_and_invalid_ones_become_an_error(self):
         res = CompletionResult("x", "m", "E")

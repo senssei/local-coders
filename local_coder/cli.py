@@ -4,6 +4,7 @@ import argparse
 import os
 import sys
 
+from . import perf
 from .client import DEFAULT_MAX_TOKENS, UnifiedLocalCoderClient
 from .prompts import normalize_language
 from .status import format_status
@@ -65,7 +66,13 @@ def main() -> None:
     rev_p = subparsers.add_parser(
         "review", parents=[common], help="Audit code for security, concurrency, and performance"
     )
-    rev_p.add_argument("--file", required=True, help="Path to Python file to audit")
+    rev_p.add_argument("--file", required=True, help="Path to the file to audit")
+    rev_p.add_argument(
+        "--language",
+        type=_language,
+        default=None,
+        help="Language of the file (default: guessed from its extension)",
+    )
     rev_p.add_argument("--focus", help="Audit focus areas (e.g. 'race conditions, memory leaks')")
     rev_p.add_argument("--model", help="Explicit model name")
     rev_p.add_argument("--output", help="Save review markdown to specified file")
@@ -85,6 +92,16 @@ def main() -> None:
     ref_p.add_argument("--output", help="Save refactored code to specified file")
     ref_p.add_argument("--no-heal", action="store_true", help="Disable AST syntax self-healing")
 
+    # Performance state (read by status lines)
+    perf_p = subparsers.add_parser("perf", help="Show the latest local-call performance (for status lines)")
+    perf_mode = perf_p.add_mutually_exclusive_group()
+    perf_mode.add_argument("--line", action="store_true", help="One line for a status line (default)")
+    perf_mode.add_argument("--json", action="store_true", help="Summary and raw state as JSON")
+    perf_p.add_argument(
+        "--max-age", type=float, default=perf.DEFAULT_MAX_AGE, help="Seconds the last call counts as current"
+    )
+    perf_p.add_argument("--color", action="store_true", help="Dim the line with an ANSI escape")
+
     # Status subcommand
     status_p = subparsers.add_parser("status", help="Display diagnostic health check across all local engines")
     status_p.add_argument("--explain", action="store_true", help="Also show the routing rules and where each task goes")
@@ -93,6 +110,14 @@ def main() -> None:
     if not args.subcommand:
         parser.print_help()
         sys.exit(0)
+
+    if args.subcommand == "perf":  # needs no engine, so answer before building a client
+        forwarded = (
+            [f"--max-age={args.max_age}"]
+            + (["--json"] if args.json else ["--line"])
+            + (["--color"] if args.color else [])
+        )
+        sys.exit(perf.main(forwarded))
 
     try:
         client = UnifiedLocalCoderClient(default_engine=args.engine)
@@ -162,6 +187,7 @@ def main() -> None:
                 engine=args.engine,
                 model=args.model,
                 max_tokens=args.max_tokens,
+                language=args.language,
             )
             print(format_result_banner(res, args.max_tokens), file=sys.stderr)
             write_out(res.content, args.output)

@@ -15,6 +15,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -187,6 +188,10 @@ class JsonMcp:
         if not is_ours(ctx, current):
             return "kept (not installed by local-coders)"
         del data[self.key][name]
+        if not data[self.key] and set(data) == {self.key}:  # nothing else lives in the file any more
+            if not ctx.dry_run:
+                path.unlink()
+            return "removed (the file held nothing else, so it was deleted)"
         write_json(ctx, path, data)
         return "removed"
 
@@ -301,6 +306,10 @@ class CodexToml:
         if name not in tables:
             return "absent"
         del tables[name]
+        if not tables and not outside.strip():  # nothing else lives in the file any more
+            if not ctx.dry_run:
+                path.unlink()
+            return "removed (the file held nothing else, so it was deleted)"
         self._write(ctx, path, outside, tables)
         return "removed"
 
@@ -452,6 +461,7 @@ def stage(ctx: Ctx, comps: list[Component]) -> None:
     _place(ctx, REPO / "local_coder", ctx.share / "local_coder")
     for script in ("ask_coder.py", *SERVER_SCRIPTS):
         _place(ctx, REPO / script, ctx.share / script)
+    _place(ctx, REPO / "scripts" / "local-coders-statusline.sh", ctx.share / "statusline.sh")
     for comp in comps:
         if comp.skill:
             _place(ctx, REPO / ".agents" / "skills" / comp.skill, ctx.share / "skills" / comp.skill)
@@ -628,8 +638,186 @@ def cmd_list(ctx: Ctx) -> None:
     )
 
 
+# ---------------------------------------------------------------------------------------------------- status line
+
+
+STATUSLINE_MARKER = "# local-coders-perf"
+
+
+def _perf_suffix(ctx: Ctx) -> str:
+    """The shell fragment that adds the local-coder row (stdlib-only script, no network)."""
+    perf = ctx.share / "local_coder" / "perf.py"
+    return f"{shlex.quote(ctx.python)} {shlex.quote(str(perf))} --line --color {STATUSLINE_MARKER}"
+
+
+def _split_statusline(command: str) -> tuple[str, bool]:
+    """``(original command, whether our fragment is appended)``; the fragment is recognised by its marker."""
+    if not command.rstrip().endswith(STATUSLINE_MARKER):
+        return command, False
+    cut = command.rfind(" ; ")
+    ours = command if cut == -1 else command[cut + 3 :]
+    if "local_coder/perf.py" not in ours:
+        return command, False
+    return ("" if cut == -1 else command[:cut]), True
+
+
+def enable_statusline(ctx: Ctx) -> str:
+    """Append the local-coder row to Claude Code's ``statusLine`` command, leaving the rest of it as it was.
+
+    The result reads ``<your command> ; python3 .../perf.py --line --color # local-coders-perf``. Keeping your command
+    first matters: claude-statusbar (``cs``) recognises its own entry by that prefix and would otherwise show a
+    "statusLine is occupied" warning. ``disable_statusline`` cuts the fragment off again.
+    """
+    path = ctx.home / ".claude" / "settings.json"
+    settings = read_json(path)
+    current = settings.get("statusLine")
+    if current is not None and not (isinstance(current, dict) and current.get("type") == "command"):
+        raise InstallError(f"{path}: statusLine is not a command status line, so it was left alone")
+
+    original = str(current.get("command", "")) if isinstance(current, dict) else ""
+    base, _ = _split_statusline(original)  # a fragment from an earlier run (other python/prefix) is replaced
+    command = f"{base} ; {_perf_suffix(ctx)}" if base else _perf_suffix(ctx)
+    if command == original:
+        return "unchanged"
+    detail = f" (after: {base})" if base else ""
+    if ctx.dry_run:
+        return "would be enabled" + detail
+    settings["statusLine"] = {**(current or {}), "type": "command", "command": command}
+    write_json(ctx, path, settings)
+    return "enabled" + detail
+
+
+def disable_statusline(ctx: Ctx) -> str:
+    """Undo ``enable_statusline``: cut our fragment off, or remove the entry if it held nothing else."""
+    path = ctx.home / ".claude" / "settings.json"
+    settings = read_json(path)
+    current = settings.get("statusLine")
+    if not isinstance(current, dict):
+        return "absent"
+    base, ours = _split_statusline(str(current.get("command", "")))
+    if not ours:
+        return "absent"
+    detail = f" ({base})" if base else " (entry removed)"
+    if ctx.dry_run:
+        return "would be restored" + detail
+    if base:
+        settings["statusLine"] = {**current, "command": base}
+    else:
+        del settings["statusLine"]
+    write_json(ctx, path, settings)
+    return "restored" + detail
+
+
+def _agy_settings(ctx: Ctx) -> Path:
+    return ctx.home / ".gemini" / "antigravity-cli" / "settings.json"
+
+
+def _agy_base_file(ctx: Ctx) -> Path:
+    return _xdg_config(ctx) / "local-coders" / "statusline-base"
+
+
+def enable_agy_statusline(ctx: Ctx) -> str:
+    """Point Antigravity CLI's custom status line at the wrapper script, remembering the command it replaces.
+
+    agy runs a bare command, so unlike Claude Code's it is not extended with a shell fragment: the wrapper script runs
+    the original command (same JSON on stdin) and then prints the local-coder row. If there was no custom command the
+    default bar is kept and ours is stacked under it (``stack_with_default``).
+    """
+    path = _agy_settings(ctx)
+    settings = read_json(path)
+    current = settings.get("statusLine")
+    wrapper = str(ctx.share / "statusline.sh")
+    if current is not None and not isinstance(current, dict):
+        raise InstallError(f"{path}: statusLine has an unexpected shape, so it was left alone")
+    if isinstance(current, dict) and current.get("command") == wrapper:
+        return "unchanged"
+
+    base = str(current.get("command", "")) if isinstance(current, dict) else ""
+    detail = f" (after: {base})" if base else " (stacked under the default bar)"
+    if ctx.dry_run:
+        return "would be enabled" + detail
+    base_file = _agy_base_file(ctx)
+    base_file.parent.mkdir(parents=True, exist_ok=True)
+    base_file.write_text(base + "\n" if base else "", encoding="utf-8")
+    entry = {**(current or {}), "command": wrapper, "enabled": (current or {}).get("enabled", True)}
+    entry.setdefault("type", "")
+    if not base:
+        entry["stack_with_default"] = True
+    settings["statusLine"] = entry
+    write_json(ctx, path, settings)
+    return "enabled" + detail
+
+
+def disable_agy_statusline(ctx: Ctx) -> str:
+    """Undo ``enable_agy_statusline``: restore the original command, or remove the entry we created."""
+    path = _agy_settings(ctx)
+    settings = read_json(path)
+    current = settings.get("statusLine")
+    if not (isinstance(current, dict) and current.get("command") == str(ctx.share / "statusline.sh")):
+        return "absent"
+    base_file = _agy_base_file(ctx)
+    base = base_file.read_text(encoding="utf-8").strip() if base_file.exists() else ""
+    detail = f" ({base})" if base else " (entry removed)"
+    if ctx.dry_run:
+        return "would be restored" + detail
+    if base:
+        settings["statusLine"] = {**current, "command": base}
+    else:
+        del settings["statusLine"]
+    write_json(ctx, path, settings)
+    base_file.unlink(missing_ok=True)
+    return "restored" + detail
+
+
+CURSOR_RULE = REPO / ".cursor" / "rules" / "local-coder.mdc"
+
+
+def install_cursor_rules(ctx: Ctx, project: Path) -> str:
+    """Copy the Cursor rule (when to use the local-coder tools) into ``project``/.cursor/rules/.
+
+    Cursor has no skills directory, and its user-level rules are set in its settings rather than in a file, so the
+    rule is project-level. An existing different file is never overwritten without ``--force``.
+    """
+    if not project.is_dir():
+        raise InstallError(f"--cursor-rules: {project} is not a directory")
+    target = project / ".cursor" / "rules" / CURSOR_RULE.name
+    text = CURSOR_RULE.read_text(encoding="utf-8")
+    if target.exists():
+        if target.read_text(encoding="utf-8") == text:
+            return "unchanged"
+        if not ctx.force:
+            raise InstallError(f"{target} already exists and differs; re-run with --force to replace it")
+    if ctx.dry_run:
+        return f"would be written to {target}"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8")
+    return f"written to {target}"
+
+
+def remove_cursor_rules(ctx: Ctx, project: Path) -> str:
+    target = project / ".cursor" / "rules" / CURSOR_RULE.name
+    if not target.exists():
+        return "absent"
+    if target.read_text(encoding="utf-8") != CURSOR_RULE.read_text(encoding="utf-8"):
+        return "kept (it was edited, so it is no longer the installed rule)"
+    if not ctx.dry_run:
+        target.unlink()
+        for parent in (target.parent, target.parent.parent):  # tidy up directories we may have created
+            try:
+                parent.rmdir()
+            except OSError:
+                break
+    return "removed"
+
+
 def cmd_install(
-    ctx: Ctx, harnesses: list[Harness], comps: list[Component], extra_json: list[Path], no_bin: bool
+    ctx: Ctx,
+    harnesses: list[Harness],
+    comps: list[Component],
+    extra_json: list[Path],
+    no_bin: bool,
+    statusline: bool = False,
+    cursor_rules: Path | None = None,
 ) -> None:
     if not ctx.dry_run:
         preflight(ctx)
@@ -665,10 +853,47 @@ def cmd_install(
     print()
     if not no_bin:
         link_cli(ctx, comps)
+    if cursor_rules is not None:
+        try:
+            ctx.say("📐", f"Cursor rule: {install_cursor_rules(ctx, cursor_rules.expanduser().resolve())}")
+        except InstallError as e:
+            ctx.warn(str(e))
+    if statusline:
+        enablers = {
+            "claude-code": ("Claude Code", enable_statusline),
+            "antigravity": ("Antigravity CLI", enable_agy_statusline),
+        }
+        chosen = [enablers[k] for k in enablers if k in selected]
+        if not chosen:
+            ctx.warn("--statusline needs a harness with a status line: --harness claude-code and/or antigravity")
+        for label, enable in chosen:
+            try:
+                ctx.say("📊", f"{label} status line: {enable(ctx)}")
+            except InstallError as e:
+                ctx.warn(f"{label} status line: {e}")
     verify(ctx)
 
 
-def cmd_uninstall(ctx: Ctx, harnesses: list[Harness], comps: list[Component], extra_json: list[Path]) -> None:
+def cmd_uninstall(
+    ctx: Ctx,
+    harnesses: list[Harness],
+    comps: list[Component],
+    extra_json: list[Path],
+    statusline: bool = False,
+    cursor_rules: Path | None = None,
+) -> None:
+    if cursor_rules is not None:
+        ctx.say("📐", f"Cursor rule: {remove_cursor_rules(ctx, cursor_rules.expanduser().resolve())}")
+    # The status line wrapper lives in the share directory: hand the original command back before that goes away.
+    removing_share = ctx.share.exists() and set(comps) == set(COMPONENTS.values())
+    if statusline or removing_share:
+        for label, disable in (("Claude Code", disable_statusline), ("Antigravity CLI", disable_agy_statusline)):
+            try:
+                state = disable(ctx)
+                if state != "absent":
+                    ctx.say("📊", f"{label} status line: {state}")
+            except InstallError as e:
+                ctx.warn(f"{label} status line: {e}")
     targets: list[tuple[str, object, Harness | None]] = [(h.label, h.mcp, h) for h in harnesses]
     targets += [(str(p), JsonMcp(lambda _c, p=p: p), None) for p in extra_json]
     for label, backend, harness in targets:
@@ -741,6 +966,19 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     p.add_argument("--no-bin", action="store_true", help="do not create ask-coder & co. in ~/.local/bin")
     p.add_argument(
+        "--cursor-rules",
+        type=Path,
+        metavar="DIR",
+        help="also write the Cursor rule (.cursor/rules/local-coder.mdc) into the project DIR "
+        "(with --uninstall: remove it again if it is unchanged)",
+    )
+    p.add_argument(
+        "--statusline",
+        action="store_true",
+        help="Claude Code and Antigravity CLI: add a local-coder performance row to your status line "
+        "(with --uninstall: take it out again)",
+    )
+    p.add_argument(
         "--force", action="store_true", help="replace same-named MCP servers that local-coders did not create"
     )
     p.add_argument("--dry-run", action="store_true", help="show what would change, change nothing")
@@ -780,15 +1018,15 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         comps = expand_components(args.components)
         harnesses = expand_harnesses(ctx, args.harness)
-        if not harnesses and not args.mcp_json:
+        if not harnesses and not args.mcp_json and not args.cursor_rules:
             print("No supported harness detected. Run with --list, or name one with --harness / --mcp-json.")
             return 1
         mode = "DRY RUN — " if args.dry_run else ""
         print(f"{mode}{'Uninstalling' if args.uninstall else 'Installing'}: {', '.join(c.key for c in comps)}")
         if args.uninstall:
-            cmd_uninstall(ctx, harnesses, comps, args.mcp_json)
+            cmd_uninstall(ctx, harnesses, comps, args.mcp_json, args.statusline, args.cursor_rules)
         else:
-            cmd_install(ctx, harnesses, comps, args.mcp_json, args.no_bin)
+            cmd_install(ctx, harnesses, comps, args.mcp_json, args.no_bin, args.statusline, args.cursor_rules)
     except InstallError as e:
         print(f"\nError: {e}", file=sys.stderr)
         return 1

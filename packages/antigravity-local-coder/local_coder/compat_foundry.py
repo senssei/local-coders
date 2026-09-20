@@ -13,8 +13,8 @@ import requests
 from .client import UnifiedLocalCoderClient
 from .compat_cli import Flavor, run
 from .mcp import StdioMCPServer
+from .models import CompletionResult, EngineType
 from .router import FOUNDRY_DAEMON_JSON
-from .types import CompletionResult, EngineType
 
 ENGINES = (EngineType.PRISM, EngineType.FOUNDRY)
 DEFAULT_FALLBACK_MODEL = "phi-3.5-mini"

@@ -14,6 +14,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+import local_coder_mcp_server  # noqa: E402
+
 spec = importlib.util.spec_from_file_location("local_coders_install", REPO_ROOT / "install.py")
 install = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(install)
@@ -333,6 +337,113 @@ class TestSkillsAndStaging(InstallerCase):
         self.assertEqual((entry["command"], entry["args"]), (str(fake / "prism"), ["mcp"]))
 
 
+class TestUninstallCleanup(InstallerCase):
+    def test_config_files_left_with_nothing_in_them_disappear(self):
+        with patch.dict(os.environ, {"CODEX_HOME": ""}):
+            self.run_installer("--harness", "cursor,codex,gemini-cli", "--components", "all")
+            for rel in (".cursor/mcp.json", ".codex/config.toml", ".gemini/settings.json"):
+                self.assertTrue((self.home / rel).exists(), rel)
+            self.run_installer("--harness", "cursor,codex,gemini-cli", "--components", "all", "--uninstall")
+        for rel in (".cursor/mcp.json", ".codex/config.toml", ".gemini/settings.json"):
+            with self.subTest(file=rel):
+                self.assertFalse((self.home / rel).exists(), f"{rel} should have been deleted")
+
+    def test_an_empty_config_file_is_deleted_but_one_with_other_keys_stays(self):
+        cursor = self.home / ".cursor" / "mcp.json"
+        cursor.parent.mkdir()
+        cursor.write_text(json.dumps({"mcpServers": {}}))  # existed before, holds nothing
+        self.run_installer("--harness", "cursor")
+        self.run_installer("--harness", "cursor", "--uninstall")
+        self.assertFalse(cursor.exists())
+        cursor.write_text(json.dumps({"theme": "x", "mcpServers": {}}))
+        self.run_installer("--harness", "cursor")
+        self.run_installer("--harness", "cursor", "--uninstall")
+        self.assertEqual(json.loads(cursor.read_text()), {"theme": "x", "mcpServers": {}})
+
+    def test_foreign_entries_and_keys_keep_the_file_alive(self):
+        cursor = self.home / ".cursor" / "mcp.json"
+        cursor.parent.mkdir()
+        cursor.write_text(json.dumps({"mcpServers": {"mine": {"command": "m"}}}))
+        self.run_installer("--harness", "cursor")
+        self.run_installer("--harness", "cursor", "--uninstall")
+        self.assertEqual(json.loads(cursor.read_text()), {"mcpServers": {"mine": {"command": "m"}}})
+
+    def test_partial_uninstall_keeps_a_file_that_still_has_our_other_entries(self):
+        self.run_installer("--harness", "cursor", "--components", "local-coder,ollama-coder")
+        self.run_installer("--harness", "cursor", "--uninstall")
+        self.assertIn("ollama-local", json.loads((self.home / ".cursor" / "mcp.json").read_text())["mcpServers"])
+
+    def test_dry_run_uninstall_deletes_nothing(self):
+        self.run_installer("--harness", "cursor")
+        out = self.run_installer("--harness", "cursor", "--uninstall", "--dry-run")
+        self.assertIn("deleted", out)
+        self.assertTrue((self.home / ".cursor" / "mcp.json").exists())
+
+
+class TestCursorRules(InstallerCase):
+    RULE = REPO_ROOT / ".cursor" / "rules" / "local-coder.mdc"
+
+    def project(self) -> Path:
+        path = self.home / "proj"
+        path.mkdir(exist_ok=True)
+        return path
+
+    def target(self) -> Path:
+        return self.project() / ".cursor" / "rules" / "local-coder.mdc"
+
+    def install(self, *extra: str, expect: int = 0) -> str:
+        return self.run_installer("--harness", "cursor", "--cursor-rules", str(self.project()), *extra, expect=expect)
+
+    def test_the_rule_is_copied_into_the_project_and_is_idempotent(self):
+        self.assertIn("written to", self.install())
+        self.assertEqual(self.target().read_text(), self.RULE.read_text())
+        self.assertIn("unchanged", self.install())
+
+    def test_a_different_existing_rule_is_not_overwritten_without_force(self):
+        self.target().parent.mkdir(parents=True)
+        self.target().write_text("my own rule")
+        self.assertIn("differs", self.install(expect=1))
+        self.assertEqual(self.target().read_text(), "my own rule")
+        self.install("--force")
+        self.assertEqual(self.target().read_text(), self.RULE.read_text())
+
+    def test_uninstall_removes_only_an_unchanged_rule_and_tidies_up(self):
+        self.install()
+        out = self.run_installer("--harness", "cursor", "--cursor-rules", str(self.project()), "--uninstall")
+        self.assertIn("Cursor rule: removed", out)
+        self.assertFalse((self.project() / ".cursor").exists())
+        self.install()
+        self.target().write_text(self.RULE.read_text() + "\nmy edit\n")
+        out = self.run_installer("--harness", "cursor", "--cursor-rules", str(self.project()), "--uninstall")
+        self.assertIn("kept", out)
+        self.assertTrue(self.target().exists())
+
+    def test_dry_run_writes_nothing_and_a_missing_directory_is_an_error(self):
+        self.assertIn("would be written", self.install("--dry-run"))
+        self.assertFalse((self.project() / ".cursor").exists())
+        out = self.run_installer("--harness", "cursor", "--cursor-rules", str(self.home / "nope"), expect=1)
+        self.assertIn("is not a directory", out)
+
+    def test_it_also_works_without_any_harness(self):
+        with patch.dict(os.environ, {"PATH": os.path.dirname(sys.executable)}):
+            self.run_installer("--cursor-rules", str(self.project()))
+        self.assertTrue(self.target().exists())
+
+    def test_the_rule_matches_the_real_tools_and_has_cursor_frontmatter(self):
+        import re
+
+        text = self.RULE.read_text()
+        front = text.split("---")[1]
+        for key in ("description:", "globs:", "alwaysApply:"):
+            self.assertIn(key, front)
+        self.assertIn("alwaysApply: false", front)
+        real = {t["name"] for t in local_coder_mcp_server.handle_list_tools()}
+        mentioned = set(re.findall(r"`((?:local_|list_local)\w+)`", text))
+        self.assertTrue(mentioned, "the rule should name the tools")
+        self.assertLessEqual(mentioned, real, f"the rule names tools the server does not have: {mentioned - real}")
+        self.assertEqual(real - mentioned, set(), "the rule should mention every tool")
+
+
 class TestLinkMode(InstallerCase):
     def test_share_directory_points_at_the_checkout(self):
         out = self.run_installer("--harness", "cursor", "--link", "--components", "local-coder,ollama-coder")
@@ -390,6 +501,377 @@ class TestLinkMode(InstallerCase):
         self.assertIn("would stage code", out)
         self.assertIn("link to", out)
         self.assertFalse(self.share.exists())
+
+
+class TestStatusline(InstallerCase):
+    BASE = "/home/me/.local/bin/cs render"
+
+    def settings_path(self) -> Path:
+        return self.home / ".claude" / "settings.json"
+
+    def write_settings(self, **extra) -> None:
+        self.settings_path().parent.mkdir(parents=True, exist_ok=True)
+        self.settings_path().write_text(json.dumps({"theme": "dark", **extra}))
+
+    def command(self) -> str:
+        return json.loads(self.settings_path().read_text())["statusLine"]["command"]
+
+    def suffix(self) -> str:
+        import shlex
+
+        perf = self.share / "local_coder" / "perf.py"
+        return f"{shlex.quote(sys.executable)} {shlex.quote(str(perf))} --line --color # local-coders-perf"
+
+    def install(self, *extra: str, expect: int = 0) -> str:
+        self.fake_claude_on_path()
+        return self.run_installer("--harness", "claude-code", "--statusline", *extra, expect=expect)
+
+    def test_appends_to_the_existing_command_and_keeps_everything_else(self):
+        self.write_settings(statusLine={"type": "command", "command": self.BASE, "refreshInterval": 1, "padding": 2})
+        out = self.install()
+        self.assertIn(f"enabled (after: {self.BASE})", out)
+        settings = json.loads(self.settings_path().read_text())
+        self.assertEqual(
+            settings["statusLine"],
+            {"type": "command", "command": f"{self.BASE} ; {self.suffix()}", "refreshInterval": 1, "padding": 2},
+        )
+        self.assertEqual(settings["theme"], "dark")
+        self.assertTrue(self.command().startswith(self.BASE))  # cs recognises its entry by this prefix
+        self.assertTrue(self.settings_path().with_name("settings.json.bak-local-coders").exists())
+
+    def test_rerun_is_idempotent_and_never_stacks_fragments(self):
+        self.write_settings(statusLine={"type": "command", "command": self.BASE})
+        self.install()
+        before = self.settings_path().read_text()
+        self.assertIn("unchanged", self.install())
+        self.assertEqual(self.settings_path().read_text(), before)
+        self.assertEqual(self.command().count("local-coders-perf"), 1)
+
+    def test_a_different_python_replaces_the_fragment_instead_of_adding_another(self):
+        self.write_settings(statusLine={"type": "command", "command": self.BASE})
+        self.install()
+        self.fake_claude_on_path()
+        out = self.run_installer("--harness", "claude-code", "--statusline", "--python", "/usr/bin/python3")
+        self.assertIn("enabled", out)
+        self.assertEqual(self.command().count("local-coders-perf"), 1)
+        self.assertTrue(self.command().startswith(f"{self.BASE} ; /usr/bin/python3 "))
+
+    def test_uninstall_restores_the_original_command_exactly(self):
+        self.write_settings(statusLine={"type": "command", "command": self.BASE, "refreshInterval": 1})
+        self.install()
+        out = self.run_installer("--harness", "claude-code", "--statusline", "--uninstall")
+        self.assertIn(f"restored ({self.BASE})", out)
+        self.assertEqual(
+            json.loads(self.settings_path().read_text())["statusLine"],
+            {"type": "command", "command": self.BASE, "refreshInterval": 1},
+        )
+
+    def test_full_uninstall_restores_before_the_share_directory_disappears(self):
+        self.write_settings(statusLine={"type": "command", "command": self.BASE})
+        self.install()
+        self.run_installer("--harness", "claude-code", "--components", "all", "--uninstall")
+        self.assertFalse(self.share.exists())
+        self.assertEqual(self.command(), self.BASE)
+
+    def test_partial_uninstall_leaves_the_status_line_alone(self):
+        self.write_settings(statusLine={"type": "command", "command": self.BASE})
+        self.install()
+        self.run_installer("--harness", "claude-code", "--uninstall")
+        self.assertIn("local-coders-perf", self.command())
+
+    def test_uninstall_without_our_fragment_never_touches_a_status_line(self):
+        self.write_settings(statusLine={"type": "command", "command": f"{self.BASE} # local-coders-perf but not ours"})
+        before = self.settings_path().read_text()
+        self.run_installer("--harness", "claude-code", "--statusline", "--uninstall")
+        self.assertEqual(self.settings_path().read_text(), before)
+
+    def test_without_an_existing_status_line_the_entry_is_created_and_later_removed(self):
+        self.write_settings()
+        self.assertIn("enabled", self.install())
+        self.assertEqual(self.command(), self.suffix())
+        self.run_installer("--harness", "claude-code", "--statusline", "--uninstall")
+        self.assertNotIn("statusLine", json.loads(self.settings_path().read_text()))
+
+    def test_a_status_line_that_is_not_a_command_is_left_alone(self):
+        self.write_settings(statusLine={"type": "static", "text": "hi"})
+        before = self.settings_path().read_text()
+        out = self.install(expect=1)
+        self.assertIn("not a command status line", out)
+        self.assertEqual(self.settings_path().read_text(), before)
+
+    def test_dry_run_changes_nothing(self):
+        self.write_settings(statusLine={"type": "command", "command": self.BASE})
+        before = self.settings_path().read_text()
+        out = self.install("--dry-run")
+        self.assertIn("would be enabled", out)
+        self.assertEqual(self.settings_path().read_text(), before)
+
+    def test_invalid_settings_json_is_refused(self):
+        self.settings_path().parent.mkdir(parents=True)
+        self.settings_path().write_text("{ nope")
+        self.assertIn("not valid JSON", self.install(expect=1))
+        self.assertEqual(self.settings_path().read_text(), "{ nope")
+
+    def test_not_enabled_unless_asked(self):
+        self.write_settings(statusLine={"type": "command", "command": self.BASE})
+        self.fake_claude_on_path()
+        self.run_installer("--harness", "claude-code")
+        self.assertEqual(self.command(), self.BASE)
+
+
+class TestAgyStatusline(InstallerCase):
+    BASE = "/home/me/.local/share/agy-statusline/statusline.sh"
+
+    def settings_path(self) -> Path:
+        return self.home / ".gemini" / "antigravity-cli" / "settings.json"
+
+    def write_settings(self, **extra) -> None:
+        self.settings_path().parent.mkdir(parents=True, exist_ok=True)
+        self.settings_path().write_text(json.dumps({"colorScheme": "solarized dark", **extra}))
+
+    def status_line(self) -> dict:
+        return json.loads(self.settings_path().read_text())["statusLine"]
+
+    def base_file(self) -> Path:
+        return self.home / ".config" / "local-coders" / "statusline-base"
+
+    def install(self, *extra: str, expect: int = 0) -> str:
+        return self.run_installer("--harness", "antigravity", "--statusline", *extra, expect=expect)
+
+    def test_replaces_the_command_with_the_wrapper_and_remembers_the_original(self):
+        self.write_settings(statusLine={"type": "", "command": self.BASE, "enabled": True})
+        out = self.install()
+        self.assertIn(f"enabled (after: {self.BASE})", out)
+        self.assertEqual(
+            self.status_line(), {"type": "", "command": str(self.share / "statusline.sh"), "enabled": True}
+        )
+        self.assertEqual(self.base_file().read_text().strip(), self.BASE)
+        self.assertEqual(json.loads(self.settings_path().read_text())["colorScheme"], "solarized dark")
+        self.assertTrue(self.settings_path().with_name("settings.json.bak-local-coders").exists())
+        self.assertTrue(os.access(self.share / "statusline.sh", os.X_OK))
+
+    def test_a_disabled_status_line_stays_disabled(self):
+        self.write_settings(statusLine={"type": "", "command": self.BASE, "enabled": False})
+        self.install()
+        self.assertFalse(self.status_line()["enabled"])
+
+    def test_without_a_custom_command_the_default_bar_is_kept_and_ours_is_stacked(self):
+        self.write_settings()
+        self.assertIn("stacked under the default bar", self.install())
+        self.assertEqual(
+            self.status_line(),
+            {"type": "", "command": str(self.share / "statusline.sh"), "enabled": True, "stack_with_default": True},
+        )
+        self.run_installer("--harness", "antigravity", "--statusline", "--uninstall")
+        self.assertNotIn("statusLine", json.loads(self.settings_path().read_text()))
+        self.assertFalse(self.base_file().exists())
+
+    def test_rerun_is_idempotent_and_never_wraps_the_wrapper(self):
+        self.write_settings(statusLine={"type": "", "command": self.BASE, "enabled": True})
+        self.install()
+        before = self.settings_path().read_text()
+        self.assertIn("unchanged", self.install())
+        self.assertEqual(self.settings_path().read_text(), before)
+        self.assertEqual(self.base_file().read_text().strip(), self.BASE)
+
+    def test_uninstall_restores_the_original_and_a_full_uninstall_does_it_before_the_share_goes(self):
+        self.write_settings(statusLine={"type": "", "command": self.BASE, "enabled": True})
+        self.install()
+        self.run_installer("--harness", "antigravity", "--statusline", "--uninstall")
+        self.assertEqual(self.status_line(), {"type": "", "command": self.BASE, "enabled": True})
+        self.install()
+        self.run_installer("--harness", "antigravity", "--components", "all", "--uninstall")
+        self.assertFalse(self.share.exists())
+        self.assertEqual(self.status_line()["command"], self.BASE)
+
+    def test_partial_uninstall_leaves_it_alone_and_dry_run_changes_nothing(self):
+        self.write_settings(statusLine={"type": "", "command": self.BASE, "enabled": True})
+        before = self.settings_path().read_text()
+        self.assertIn("would be enabled", self.install("--dry-run"))
+        self.assertEqual(self.settings_path().read_text(), before)
+        self.install()
+        self.run_installer("--harness", "antigravity", "--uninstall")
+        self.assertEqual(self.status_line()["command"], str(self.share / "statusline.sh"))
+
+    def test_both_harnesses_at_once_and_a_harness_without_a_status_line(self):
+        self.write_settings(statusLine={"type": "", "command": self.BASE, "enabled": True})
+        claude = self.home / ".claude" / "settings.json"
+        claude.parent.mkdir(parents=True)
+        claude.write_text(json.dumps({"statusLine": {"type": "command", "command": "cs render"}}))
+        self.fake_claude_on_path()
+        out = self.run_installer("--harness", "claude-code,antigravity", "--statusline")
+        self.assertIn("Claude Code status line: enabled", out)
+        self.assertIn("Antigravity CLI status line: enabled", out)
+        self.assertIn("local-coders-perf", json.loads(claude.read_text())["statusLine"]["command"])
+        out = self.run_installer("--harness", "cursor", "--statusline", expect=1)
+        self.assertIn("needs a harness with a status line", out)
+
+    def test_an_unexpected_shape_or_invalid_json_is_refused(self):
+        self.write_settings(statusLine="just a string")
+        before = self.settings_path().read_text()
+        self.assertIn("unexpected shape", self.install(expect=1))
+        self.assertEqual(self.settings_path().read_text(), before)
+        self.settings_path().write_text("{ nope")
+        self.assertIn("not valid JSON", self.install(expect=1))
+
+
+class TestStatuslineWrapper(InstallerCase):
+    """The wrapper script agy runs: the original bar first, then one local-coder row."""
+
+    def run_wrapper(self, stdin: str = "{}", base: str | None = None):
+        env = {
+            **os.environ,
+            "HOME": str(self.home),
+            "LOCAL_CODER_PERF": "1",
+            "LOCAL_CODER_STATE_DIR": str(self.home / "state"),
+        }
+        env.pop("LOCAL_CODER_STATUSLINE_BASE", None)
+        env.pop("XDG_CONFIG_HOME", None)
+        if base is not None:
+            env["LOCAL_CODER_STATUSLINE_BASE"] = base
+        return subprocess.run(
+            ["bash", str(REPO_ROOT / "scripts" / "local-coders-statusline.sh")],
+            input=stdin,
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd="/",
+        )
+
+    def record(self):
+        from local_coder import perf
+
+        with patch.dict(os.environ, {"LOCAL_CODER_PERF": "1", "LOCAL_CODER_STATE_DIR": str(self.home / "state")}):
+            perf.record_call(
+                engine="Ollama",
+                model="qwen2.5-coder:7b",
+                task="code",
+                prompt_tokens=10,
+                completion_tokens=5,
+                duration_s=1.0,
+                tokens_per_sec=84.0,
+                saved_usd=0.01,
+            )
+
+    def test_base_output_then_the_perf_row_and_the_base_receives_stdin(self):
+        self.record()
+        proc = self.run_wrapper(stdin='{"session": "abc"}', base="cat; echo; echo second-row")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        rows = proc.stdout.rstrip("\n").split("\n")
+        self.assertEqual(rows[:2], ['{"session": "abc"}', "second-row"])
+        self.assertEqual(len(rows), 3)
+        self.assertIn("⚡ Ollama qwen2.5-coder:7b 84 tok/s", rows[2])
+
+    def test_without_recorded_calls_only_the_base_is_shown(self):
+        self.assertEqual(self.run_wrapper(base="echo the-base-bar").stdout, "the-base-bar\n")
+
+    def test_a_failing_base_never_hides_the_perf_row_or_fails_the_wrapper(self):
+        self.record()
+        proc = self.run_wrapper(base="/nonexistent/bar")
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("⚡ Ollama", proc.stdout)
+
+    def test_no_base_command_and_base_from_the_config_file(self):
+        self.record()
+        self.assertTrue(self.run_wrapper().stdout.startswith("\x1b[2m⚡ Ollama"))
+        base_file = self.home / ".config" / "local-coders" / "statusline-base"
+        base_file.parent.mkdir(parents=True)
+        base_file.write_text("echo from-file\nsecond line is ignored\n")
+        self.assertTrue(self.run_wrapper().stdout.startswith("from-file\n"))
+
+    def test_it_works_from_the_installed_copy_and_through_a_link(self):
+        self.record()
+        for mode in ("copy", "link"):
+            with self.subTest(mode=mode):
+                self.run_installer("--harness", "cursor", f"--{mode}")
+                proc = subprocess.run(
+                    ["bash", str(self.share / "statusline.sh")],
+                    input="{}",
+                    capture_output=True,
+                    text=True,
+                    cwd="/",
+                    env={
+                        **os.environ,
+                        "HOME": str(self.home),
+                        "LOCAL_CODER_PERF": "1",
+                        "LOCAL_CODER_STATE_DIR": str(self.home / "state"),
+                    },
+                )
+                self.assertIn("⚡ Ollama", proc.stdout, proc.stderr)
+
+
+class TestStatuslineCommand(InstallerCase):
+    """The command Claude Code ends up running: the original bar first, then one local-coder row."""
+
+    def enabled_command(self, base: str) -> str:
+        self.fake_claude_on_path()
+        settings = self.home / ".claude" / "settings.json"
+        settings.parent.mkdir(parents=True, exist_ok=True)
+        settings.write_text(json.dumps({"statusLine": {"type": "command", "command": base}} if base else {}))
+        self.run_installer("--harness", "claude-code", "--statusline")
+        return json.loads(settings.read_text())["statusLine"]["command"]
+
+    def run_command(self, command: str, stdin: str = "{}"):
+        env = {
+            **os.environ,
+            "HOME": str(self.home),
+            "LOCAL_CODER_PERF": "1",
+            "LOCAL_CODER_STATE_DIR": str(self.home / "state"),
+        }
+        return subprocess.run(["bash", "-c", command], input=stdin, capture_output=True, text=True, env=env, cwd="/")
+
+    def record(self):
+        from local_coder import perf
+
+        with patch.dict(os.environ, {"LOCAL_CODER_PERF": "1", "LOCAL_CODER_STATE_DIR": str(self.home / "state")}):
+            perf.record_call(
+                engine="Ollama",
+                model="qwen2.5-coder:7b",
+                task="code",
+                prompt_tokens=10,
+                completion_tokens=5,
+                duration_s=1.0,
+                tokens_per_sec=84.0,
+                saved_usd=0.01,
+            )
+
+    def test_base_output_then_the_perf_row_and_the_base_receives_stdin(self):
+        command = self.enabled_command("cat; echo; echo second-row")
+        self.record()
+        proc = self.run_command(command, stdin='{"session": "abc"}')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        rows = proc.stdout.rstrip("\n").split("\n")
+        self.assertEqual(rows[:2], ['{"session": "abc"}', "second-row"])  # stdin reached the base command
+        self.assertEqual(len(rows), 3)
+        self.assertIn("⚡ Ollama qwen2.5-coder:7b 84 tok/s", rows[2])  # our row comes last, on its own line
+
+    def test_without_recorded_calls_only_the_base_is_shown(self):
+        proc = self.run_command(self.enabled_command("echo the-base-bar"))
+        self.assertEqual(proc.stdout, "the-base-bar\n")
+
+    def test_a_failing_base_command_does_not_hide_the_perf_row(self):
+        command = self.enabled_command("/nonexistent/statusbar render")
+        self.record()
+        self.assertIn("⚡ Ollama", self.run_command(command).stdout)
+
+    def test_no_base_command_at_all(self):
+        command = self.enabled_command("")
+        self.record()
+        proc = self.run_command(command)
+        self.assertEqual(proc.returncode, 0)
+        self.assertTrue(proc.stdout.startswith("\x1b[2m⚡ Ollama"))
+
+    def test_paths_with_spaces_are_quoted(self):
+        self.fake_claude_on_path()
+        settings = self.home / ".claude" / "settings.json"
+        settings.parent.mkdir(parents=True)
+        settings.write_text("{}")
+        prefix = self.home / "dir with spaces"
+        self.run_installer("--harness", "claude-code", "--statusline", "--prefix", str(prefix))
+        command = json.loads(settings.read_text())["statusLine"]["command"]
+        self.record()
+        proc = self.run_command(command)
+        self.assertIn("⚡ Ollama", proc.stdout, proc.stderr)
 
 
 class TestCli(InstallerCase):

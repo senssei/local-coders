@@ -10,9 +10,9 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from local_coder.client import ModelNotInstalledError, UnifiedLocalCoderClient
+from local_coder.models import CompletionResult, EngineInfo, EngineType
 from local_coder.router import MODEL_FALLBACKS, MODEL_PROFILES, EngineRouter
 from local_coder.telemetry import calculate_savings, format_result_banner
-from local_coder.types import CompletionResult, EngineInfo, EngineType
 
 
 def info(kind: EngineType, models: list[str], name: str | None = None) -> EngineInfo:

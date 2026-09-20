@@ -119,9 +119,37 @@ def build_test_prompt(
     ]
 
 
-def build_review_prompt(source_code: str, file_path: str, focus: str | None = None) -> list[dict[str, str]]:
-    """Build messages for architecture and security audit."""
-    user_prompt = f"FILE: {file_path}\n```python\n{source_code}\n```\n\n"
+_EXTENSION_LANGUAGES = {
+    ".py": "python", ".pyi": "python", ".sh": "bash", ".bash": "bash", ".zsh": "bash", ".js": "javascript",
+    ".mjs": "javascript", ".cjs": "javascript", ".jsx": "jsx", ".ts": "typescript", ".tsx": "tsx", ".go": "go",
+    ".rs": "rust", ".java": "java", ".kt": "kotlin", ".c": "c", ".h": "c", ".cc": "cpp", ".cpp": "cpp",
+    ".hpp": "cpp", ".cs": "csharp", ".rb": "ruby", ".php": "php", ".swift": "swift", ".sql": "sql",
+    ".yaml": "yaml", ".yml": "yaml", ".json": "json", ".toml": "toml", ".md": "markdown", ".html": "html",
+    ".css": "css", ".lua": "lua", ".ps1": "powershell", ".tf": "hcl",
+}  # fmt: skip
+_NAME_LANGUAGES = {"dockerfile": "dockerfile", "makefile": "makefile"}
+
+
+def language_for_path(file_path: str | None) -> str | None:
+    """Best guess of a file's language from its name or extension, or None when it is not recognised."""
+    if not file_path:
+        return None
+    name = re.split(r"[\\/]", file_path)[-1].lower()
+    if name in _NAME_LANGUAGES:
+        return _NAME_LANGUAGES[name]
+    dot = name.rfind(".")
+    return _EXTENSION_LANGUAGES.get(name[dot:]) if dot != -1 else None
+
+
+def build_review_prompt(
+    source_code: str, file_path: str, focus: str | None = None, language: str | None = None
+) -> list[dict[str, str]]:
+    """Build messages for architecture and security audit.
+
+    The code is fenced with ``language``, else the language guessed from ``file_path``, else a bare fence.
+    """
+    lang = normalize_language(language) if language else (language_for_path(file_path) or "")
+    user_prompt = f"FILE: {file_path}\n```{lang}\n{source_code}\n```\n\n"
     if focus:
         user_prompt += f"AUDIT FOCUS: {focus}\n\n"
     user_prompt += (

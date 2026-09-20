@@ -21,6 +21,37 @@ All agents and subagents working in this repository are encouraged to leverage t
 
 ---
 
+## 🔁 Development Process (AI-Native SDLC)
+
+Every non-trivial change follows **intent -> spec -> plan -> test -> code -> review**. Do not skip or reorder stages. A stage is
+finished only when its artifact exists on disk. Start with the `sdlc` skill (`/sdlc` in Claude Code and Antigravity CLI `agy`,
+"use the sdlc skill" elsewhere): it reads `plan.md` and git and hands over to `sdlc-plan`, `sdlc-implement`, `sdlc-review` or `sdlc-release`.
+Details: [`docs/SDLC.md`](docs/SDLC.md).
+
+| # | Stage | Artifact | Finished when |
+|---|-------|----------|---------------|
+| 1 | **Intent** | `intent.md` | Problem, outcome, constraints, non-goals still hold. If the change contradicts them, update intent first and get operator approval. |
+| 2 | **Spec** | `spec.md` | The new or changed behavior is written down (invariants I1 to I8, failure modes). No code against undefined behavior. |
+| 3 | **Plan** | `plan.md` | Work is broken into `- [ ]` items under a phase, each naming its files and its test; operator approved. |
+| 4 | **Test** | `tests/` | A hermetic test exists and has been **seen failing for the right reason**: `python3 scripts/sdlc_check.py --red tests/test_x.py::test_name`. |
+| 5 | **Code** | source | The smallest change that turns the tests green. No unrelated refactors. |
+| 6 | **Review** | `REVIEW.md` | Independent review (fresh subagent or session) has no open finding, the gate is green, the operator approves. |
+
+### Process rules
+
+- **Gates decide, not opinion**: tick a `plan.md` box only after `python3 scripts/sdlc_check.py` (ruff, pytest, changelog rule) exited `0` in this session.
+- **Bug fixes** start at stage 4: reproduce with a failing test, update `spec.md` if the intended behavior was undefined, then fix.
+- **Trivial changes** (typo, comment, docs wording) may skip stages 1 to 4; say so.
+- **Hermetic tests**: never reach Ollama, Prism, the network or the real `$HOME`; `tests/conftest.py` isolates them.
+- **Package mirror**: after changing `local_coder/`, run `cp local_coder/*.py packages/antigravity-local-coder/local_coder/`.
+- **Changelog**: user-visible changes get an entry under `## [Unreleased]` in `CHANGELOG.md`.
+- **One logical change per commit**, `type: description` as in `git log`. Commit and push only when the operator asks; never `--no-verify`.
+- **Operator gates** (explicit ask in that turn): changing `intent.md` or an invariant, adding a runtime dependency, commits, pushes, releases, GitHub issues/PRs/comments, changes to real settings (`~/.claude`, agy, Cursor), starting Prism. See `REVIEW.md` section 4.
+- **Session end**: update the phase `Status:` line in `plan.md` so the next agent, in any harness, can resume from the files.
+- Opt-in gate before every commit: `git config core.hooksPath .githooks`.
+
+---
+
 ## 🛠 Invoking the Skills
 
 ### 0. Unified Coder (`local-coder` - Recommended)
@@ -180,9 +211,10 @@ In Microsoft Foundry Local, models must be loaded into memory before `/v1/chat/c
 * If generating non-Python output (e.g., Dockerfiles, shell scripts, Markdown, YAML), **always supply `--language <name>`** (for example `--language bash`): it stops the prompt from asking for Python and skips the AST check that would reject valid non-Python code. `--no-heal` alone only skips the check.
 
 ### 6. Mandatory Verification Gate
-Prior to concluding any modification or refactoring task, execute the complete unit test suite:
+Prior to concluding any modification or refactoring task, run the gate (ruff, pytest and the changelog rule):
 ```bash
-ruff check . && ruff format --check . && python3 -m pytest
+python3 scripts/sdlc_check.py
+# equivalent core: ruff check . && ruff format --check . && python3 -m pytest
 ```
 Ensure lint is clean and every test passes before finalizing (install tooling once with `pip install -r requirements-dev.txt`).
 

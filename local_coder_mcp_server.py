@@ -14,6 +14,7 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
+from local_coder import perf
 from local_coder.client import DEFAULT_MAX_TOKENS, UnifiedLocalCoderClient
 from local_coder.mcp import StdioMCPServer, ToolNotFound
 from local_coder.status import format_status
@@ -112,6 +113,10 @@ def handle_list_tools() -> list[dict]:
                         "type": "string",
                         "description": "Areas of concern (e.g. 'concurrency, memory leaks, error handling').",
                     },
+                    "language": {
+                        "type": "string",
+                        "description": "Language of the code. Default: guessed from file_path's extension.",
+                    },
                     "engine": {
                         "type": "string",
                         "enum": ["auto", "prism", "ollama", "foundry"],
@@ -163,6 +168,12 @@ def handle_list_tools() -> list[dict]:
             },
         },
         {
+            "name": "local_perf",
+            "description": "Performance of the latest local calls: engine, model, tokens/s and today's totals "
+            "(the same data a status line shows).",
+            "inputSchema": {"type": "object", "properties": {}},
+        },
+        {
             "name": "list_local_models",
             "description": "List all installed models across active local inference engines.",
             "inputSchema": {"type": "object", "properties": {}},
@@ -206,6 +217,7 @@ def _call_tool(tool_name: str, arguments: dict) -> str:
             focus=arguments.get("focus"),
             engine=engine,
             max_tokens=max_tokens,
+            language=arguments.get("language") or None,
         )
         return f"{res.content}\n\n{format_result_banner(res, max_tokens)}"
 
@@ -223,6 +235,11 @@ def _call_tool(tool_name: str, arguments: dict) -> str:
 
     if tool_name == "local_status":
         return format_status(client.router, max_models=5, explain=bool(arguments.get("explain", False)))
+
+    if tool_name == "local_perf":
+        data = perf.load()
+        line = perf.format_line(data, max_age=perf.DEFAULT_MAX_AGE) or "no local calls recorded today"
+        return f"{line}\n\n{json.dumps(perf.summary(data), indent=2)}"
 
     if tool_name == "list_local_models":
         all_models = {eng.name: eng.installed_models for eng in client.router.list_all_engines() if eng.is_online}

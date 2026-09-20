@@ -18,7 +18,7 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from local_coder import compat_foundry, compat_ollama
-from local_coder.types import CompletionResult, EngineInfo, EngineType
+from local_coder.models import CompletionResult, EngineInfo, EngineType
 
 OLLAMA_SCRIPT = os.path.join(REPO_ROOT, ".agents", "skills", "ollama-coder", "scripts", "ask_local.py")
 FOUNDRY_SCRIPT = os.path.join(REPO_ROOT, ".agents", "skills", "foundry-coder", "scripts", "ask_foundry.py")

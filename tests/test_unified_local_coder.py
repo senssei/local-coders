@@ -12,11 +12,11 @@ if REPO_ROOT not in sys.path:
 import local_coder_mcp_server
 from local_coder.client import UnifiedLocalCoderClient, _requires_tests
 from local_coder.healing import heal_code_iterative, validate_python_code
+from local_coder.models import CompletionResult, EngineInfo, EngineType
 from local_coder.prompts import extract_code_block
 from local_coder.router import EngineRouter, normalize_ollama_host
 from local_coder.status import format_status
 from local_coder.telemetry import calculate_savings, format_result_banner
-from local_coder.types import CompletionResult, EngineInfo, EngineType
 
 
 class TestUnifiedRouter(unittest.TestCase):
