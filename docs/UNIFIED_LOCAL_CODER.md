@@ -1,22 +1,19 @@
 # 🌐 Unified Cross-Engine Local Coder (`local_coder`)
 
-The **Unified Local Coder** (`local_coder`) is a consolidated, cross-engine architecture that unifies all local AI backends into a single intelligent routing layer, CLI tool (`ask_coder.py`), and Model Context Protocol (MCP) server (`local_coder_mcp_server.py`).
+The **Unified Local Coder** (`local_coder`) is a cross-engine layer that unifies all local AI backends behind one routing client, one CLI (`ask_coder.py`) and one Model Context Protocol (MCP) server (`local_coder_mcp_server.py`).
 
 ---
 
-## 🎯 The Vision: True Cross-Engine Autonomy
+## 🎯 What it gives you
 
-Previously, this repository had separate skills and MCP servers for each backend:
-- `ollama-coder` / `ollama-local`: Ollama backend (`qwen2.5-coder`, `llama3.1`).
-- `foundry-coder` / `foundry-local`: Microsoft Foundry Local (`phi-3.5-mini`, `qwen3-0.6b`).
-- `prism` / `prism-local`: Direct CUDA GPU accelerator for ONNX models on Linux/WSL2.
+The repository also ships per-engine skills (`ollama-coder`, `foundry-coder`) and a Prism connector. `local_coder` is the shared core underneath all of them (the per-engine scripts are thin entry points over it), and the recommended interface on its own:
 
-**`local_coder` unifies them all**:
-1. **Dynamic Engine Routing & Failover**: Automatically probes and selects the fastest available engine on your hardware (Prism CUDA on Linux/WSL2 $\to$ Ollama Apple Silicon / CUDA $\to$ Microsoft Foundry Local).
-2. **Abstract Task Profiles**: Agents request capabilities by profile (`coding`, `fast`, `reasoning`) rather than hardcoding backend model names.
-3. **Integrated AST Self-Healing**: Validates generated Python syntax; if a `SyntaxError` occurs, automatically feeds the exact traceback back into the local model for immediate self-correction.
-4. **Unified Stdio MCP Server**: Single MCP server exposing tools that work identically regardless of which engine is active.
-5. **Real-time Telemetry & Cost Tracking**: Automatically calculates token counts and cumulative USD savings compared to cloud models (Claude 3.5 Sonnet and GPT-4o).
+1. **Engine routing & failover**: probes Prism, Ollama and Foundry Local, picks one by platform order, and fails over when a request cannot connect. Exceptions to the order live in a validated JSON file ([Routing exceptions](ROUTING.md)).
+2. **Task profiles**: ask for `coding`, `fast` or `reasoning` instead of hard-coding a backend's model name.
+3. **AST self-healing**: generated Python that does not parse is fed back to the model; see [Self-healing](#-self-healing) for exactly what is and is not guaranteed.
+4. **One MCP server**: the same tools whichever engine answers.
+5. **Telemetry**: tokens (healing retries included), decode speed as reported by the engine, and a *notional* saving against a reference price of $3 / $15 per 1M prompt / completion tokens (`LOCAL_CODER_PRICE_PROMPT` / `LOCAL_CODER_PRICE_COMPLETION` change it). It is an estimate, not a bill.
+6. **Truncation is never silent**: with the default limit, output that is cut off is retried once with double the budget; if it is still cut off, or you set `--max-tokens` yourself, the result carries a `⚠️ Output truncated` line.
 
 ---
 
@@ -24,33 +21,37 @@ Previously, this repository had separate skills and MCP servers for each backend
 
 ```mermaid
 flowchart TD
-    subgraph Agents ["AI Coding Agents (Antigravity, Claude, Cursor)"]
+    subgraph Agents ["AI Coding Agents (Claude Code, Antigravity, opencode, Cursor, Codex)"]
         CLI["ask_coder.py (CLI)"]
-        MCP["local_coder_mcp_server.py (Stdio JSON-RPC)"]
+        MCP["local_coder_mcp_server.py (stdio JSON-RPC)"]
     end
 
-    subgraph Core ["local_coder Core Engine"]
-        Router["EngineRouter\n(Hardware & Port Discovery)"]
-        Client["UnifiedLocalCoderClient\n(Failover & Profile Resolution)"]
-        Healer["AST Self-Healing Loop\n(ast.parse & iterative prompt)"]
-        Telemetry["Telemetry Calculator\n(Claude 3.5 Sonnet / GPT-4o USD savings)"]
+    subgraph Core ["local_coder core"]
+        Client["UnifiedLocalCoderClient\n(profiles, request building, failover)"]
+        Router["EngineRouter\n(discovery, order, cooldown)"]
+        Rules["Routing rules\n(.local-coder/routing.json)"]
+        Healer["AST self-healing loop"]
+        Telemetry["Telemetry"]
     end
 
-    subgraph Backends ["Local Engines"]
-        Prism["Prism Local (Port 5272)\nNVIDIA RTX CUDA EP"]
-        Ollama["Ollama Daemon (Port 11434)\nMetal / CUDA"]
-        Foundry["Microsoft Foundry Local\nDynamic Port / CPU"]
+    subgraph Backends ["Local engines"]
+        Prism["Prism (127.0.0.1:5272)\nONNX GenAI, CUDA"]
+        Ollama["Ollama (:11434)\nnative /api/chat"]
+        Foundry["Foundry Local\nephemeral port, CPU on WSL2"]
     end
 
     CLI --> Client
     MCP --> Client
     Client --> Router
+    Router --> Rules
     Client --> Healer
     Client --> Telemetry
-    Router -->|1st Priority on Linux| Prism
-    Router -->|1st Priority on macOS / Fallback| Ollama
-    Router -->|Fallback| Foundry
+    Router --> Prism
+    Router --> Ollama
+    Router --> Foundry
 ```
+
+Prism and Foundry Local both default to `127.0.0.1:5272`. When one server answers for both, the router treats it as a single engine (Prism wins), so a failover never lands on the endpoint that just failed.
 
 ---
 
@@ -58,34 +59,48 @@ flowchart TD
 
 ### 1. Installation
 
-Deploy the unified skill and register the MCP server with one command:
+One installer registers the skill and MCP server with every coding harness it finds (Claude Code, Antigravity, opencode, Gemini CLI, Cursor, Codex):
 ```bash
-./install_unified.sh
+python3 install.py --list       # supported harnesses and what was detected
+python3 install.py --dry-run    # show every change, make none
+python3 install.py --python /usr/bin/python3
 ```
-This script:
-- Links `ask_coder.py` to `~/.local/bin/ask-coder`.
-- Installs the unified `local-coder` skill to `~/.gemini/config/skills/local-coder`.
-- Configures `local-coder-unified-mcp` in `~/.gemini/config/mcp_config.json`.
+The code is staged once in `~/.local/share/local-coders/`; skills are symlinks to it, `ask-coder` is linked into `~/.local/bin`, and the MCP entry points at `local_coder_mcp_server.py` there. See the [README](../README.md#install) for the harness table and flags. `./install_unified.sh` still works as a wrapper.
 
 ---
 
-### 2. Unified CLI Commands (`ask_coder.py`)
+### 2. Unified CLI (`ask_coder.py`)
 
-#### System Status & Engine Discovery
-Inspect connected engines, available models, hardware detection, and active routing:
-```bash
-python3 ask_coder.py status
+`--engine` is a **global** option and goes *before* the subcommand. Options after the subcommand belong to it.
+
+```text
+ask_coder.py [--engine auto|prism|ollama|foundry] <code|test|review|refactor|status> [options]
 ```
 
-#### Code Generation with AST Self-Healing
+| Subcommand | Options |
+|---|---|
+| `code` | `--task` *(required)*, `--files F…`, `--model`, `--profile coding\|fast\|reasoning`, `--output`, `--no-heal`, `--max-tokens` |
+| `test` | `--file` *(required)*, `--framework pytest\|unittest`, `--model`, `--output`, `--no-heal`, `--max-tokens` |
+| `review` | `--file` *(required)*, `--focus`, `--model`, `--output`, `--max-tokens` |
+| `refactor` | `--file` *(required)*, `--type-hints/--no-type-hints`, `--docstrings/--no-docstrings` *(both on by default)*, `--model`, `--output`, `--no-heal`, `--max-tokens` |
+| `status` | `--explain` |
+
+`--max-tokens` defaults to 4096 and is doubled once (up to 16384) if the output is cut off; a value you pass explicitly is always respected. With no `--engine` the engine comes from `LOCAL_CODER_ENGINE`, else AUTO.
+
+#### System status & engine discovery
+```bash
+python3 ask_coder.py status             # hardware, engines, latency, models
+python3 ask_coder.py status --explain   # plus the active routing rules and where each task would go
+```
+
+#### Code generation with AST self-healing
 ```bash
 python3 ask_coder.py code \
   --task "Implement a thread-safe sliding window rate limiter with TTL" \
   --output src/rate_limiter.py
 ```
 
-#### Unit Test Suite Authoring
-Generate comprehensive tests with pytest mocks and edge cases:
+#### Unit test suite authoring
 ```bash
 python3 ask_coder.py test \
   --file src/rate_limiter.py \
@@ -93,59 +108,54 @@ python3 ask_coder.py test \
   --output tests/test_rate_limiter.py
 ```
 
-#### Architecture & Security Audit
-Audit source code for concurrency bugs, memory leaks, and vulnerabilities:
+#### Architecture & security audit
 ```bash
 python3 ask_coder.py review \
   --file src/server.py \
   --focus "race conditions, unhandled exceptions, and deadlocks"
 ```
 
-#### Refactoring & Modernization
-Add strict type hints (`typing`), PEP 257 docstrings, and clean design:
+#### Refactoring & modernization
 ```bash
 python3 ask_coder.py refactor \
   --file src/legacy_util.py \
-  --type-hints \
-  --docstrings \
-  --output src/legacy_util_typed.py
+  --output src/legacy_util_typed.py        # type hints and docstrings are on by default
 ```
 
-#### Manual Engine Selection (Optional)
-Force a specific engine instead of auto-routing:
+#### Manual engine selection
+An explicit engine bypasses routing rules:
 ```bash
-python3 ask_coder.py code --task "..." --engine prism
-python3 ask_coder.py code --task "..." --engine ollama
-python3 ask_coder.py code --task "..." --engine foundry
+python3 ask_coder.py --engine prism code --task "..."
+python3 ask_coder.py --engine ollama code --task "..."
+python3 ask_coder.py --engine foundry code --task "..."
 ```
 
 ---
 
 ## 🔌 Unified MCP Tools
 
-When registered with your AI agent, `local-coder-unified-mcp` provides the following tools:
+`local-coder-unified-mcp` provides these tools. All generating tools also accept `max_tokens` (default 4096, doubled once if the output is cut off; an explicit value is respected) and report truncation in their output.
 
-| Tool Name | Parameters | Purpose |
+| Tool | Parameters | Purpose |
 |---|---|---|
-| `local_code` | `task`, `context`, `engine`, `profile` | Generates verified Python code with AST self-healing. |
-| `local_test` | `file_path`, `code`, `framework`, `engine` | Generates comprehensive unit tests (`pytest` or `unittest`). |
-| `local_code_review` | `file_path`, `code`, `focus`, `engine` | Audits code for security, race conditions, and bottlenecks. |
-| `local_refactor` | `file_path`, `code`, `type_hints`, `docstrings`, `engine` | Refactors code for strict typing and readability. |
-| `local_status` | _none_ | Returns hardware info, active engines, and loaded models. |
-| `list_local_models` | _none_ | Lists all models discovered across Prism, Ollama, and Foundry. |
+| `local_code` | `task` *(required)*, `context_code`, `engine`, `profile`, `model`, `max_tokens` | Generates Python with AST self-healing. |
+| `local_test` | `code` *(required)*, `file_path`, `framework`, `engine`, `max_tokens` | Generates a `pytest` or `unittest` suite. |
+| `local_code_review` | `code` *(required)*, `file_path`, `focus`, `engine`, `max_tokens` | Audits code for security, races and bottlenecks. |
+| `local_refactor` | `code` *(required)*, `file_path`, `type_hints`, `docstrings`, `engine`, `max_tokens` | Adds type annotations and docstrings. |
+| `local_status` | `explain` | Hardware, engines, latency, models; `explain: true` adds routing rules. |
+| `list_local_models` | _none_ | Models on every engine that is online. |
 
-### Example MCP Configuration (`mcp_config.json`)
+`engine` is one of `auto`, `prism`, `ollama`, `foundry`; omitted means `LOCAL_CODER_ENGINE`, else auto.
+
+### Example MCP configuration
+Normally written by `install.py`; by hand it looks like:
 ```json
 {
   "mcpServers": {
     "local-coder": {
-      "command": "python3",
-      "args": [
-        "/home/senssei/.gemini/config/skills/local-coder/local_coder_mcp_server.py"
-      ],
-      "env": {
-        "LOCAL_CODER_ENGINE": "auto"
-      }
+      "command": "/usr/bin/python3",
+      "args": ["/home/you/.local/share/local-coders/local_coder_mcp_server.py"],
+      "env": { "LOCAL_CODER_ENGINE": "auto" }
     }
   }
 }
@@ -153,25 +163,62 @@ When registered with your AI agent, `local-coder-unified-mcp` provides the follo
 
 ---
 
-## 💡 Engine Selection Strategy
+## 💡 Engine selection
 
-The unified router chooses the optimal engine automatically based on hardware and daemon availability:
+AUTO mode uses a fixed order that depends on the **operating system** (not on which GPU is present), then applies your [routing rules](ROUTING.md):
 
-| Operating System | Hardware | 1st Priority | 2nd Priority | 3rd Priority |
-|---|---|---|---|---|
-| **Linux / WSL2** | NVIDIA RTX GPU | **Prism** (CUDA EP, port 5272) | **Ollama** (CUDA) | **Foundry Local** |
-| **macOS** | Apple Silicon (M-series) | **Ollama** (Metal & UMA) | **Foundry Local** | **Prism** |
-| **Any / CPU** | Generic x86_64 | **Ollama** (`llama.cpp` CPU) | **Foundry Local** | **Prism** |
+| Operating system | 1st | 2nd | 3rd |
+|---|---|---|---|
+| **Linux / WSL2** | Prism | Ollama | Foundry Local |
+| **macOS** | Ollama | Foundry Local | Prism |
 
-If an active engine is stopped or offline, the client seamlessly fails over to the next available provider.
+- **Failover** happens in AUTO mode when a request cannot connect. The model is re-resolved for the new engine, only engines your rules allow are considered, and the failed engine is skipped for `LOCAL_CODER_COOLDOWN` seconds (default 30). HTTP errors from a live engine are reported, not retried elsewhere.
+- **Built-in exceptions**: `test` prefers Ollama, and an explicitly requested `*coder*` model avoids Prism. Both are measured (see [Prism](PRISM_LOCAL.md#-measured-behaviour)) and can be overridden.
+- An explicit `--engine`, `LOCAL_CODER_ENGINE`, or a skill pinned to one engine (`ollama-coder`, `foundry-coder`) bypasses the rules.
+
+### How requests are sent
+- **Ollama**: the native `/api/chat` endpoint with `num_ctx`, because Ollama's OpenAI-compatible endpoint ignores it. The window is at least `LOCAL_CODER_NUM_CTX` (default 8192) and grows (up to 32768) so that the prompt and the whole answer fit.
+- **Prism / Foundry**: OpenAI-compatible `/chat/completions`. Foundry Local only serves resident models, so a "not loaded" answer triggers `foundry model load` and a retry (a failure of that command is reported, not swallowed). Prism loads models itself, so its answer is reported as it is.
+- **Speed** in the telemetry line is the engine's own decode speed (Prism `decode_tok_per_sec`, Ollama `eval_duration`), so model load time does not distort it.
+- **Discovery** (a few HTTP calls) is cached for `LOCAL_CODER_DISCOVERY_TTL` seconds (default 5, 0 disables), and refreshed as soon as a request fails. `status` always scans live.
+
+### Models
+- A profile names a preferred model per engine (`coding` → `qwen2.5-coder:7b` on Ollama, `phi-4-mini` on Prism, `phi-3.5-mini` on Foundry). If it is not installed, the next installed alternative from a short fallback list is used and one `[model]` line says so. If none is installed you get an error naming what was looked for, what is installed and how to get it (`ollama pull`, `prism pull`, `foundry model list`), before any request is sent.
+- Names are matched across engines, so `--model qwen2.5-coder-7b` finds `qwen2.5-coder:7b` on Ollama and `ollama:qwen2.5-coder:7b` on Prism. A model that no engine list contains is passed through unchanged, and a "not found" answer from the engine becomes the same clear error.
+
+### Configuration
+
+| Variable | Effect |
+|---|---|
+| `LOCAL_CODER_ENGINE` | Default engine (`auto`, `prism`, `ollama`, `foundry`) |
+| `LOCAL_CODER_ROUTING` | Routing file to use instead of the project/user files, or `none` |
+| `LOCAL_CODER_COOLDOWN` | Seconds a failed engine is skipped (default 30) |
+| `LOCAL_CODER_NUM_CTX` | Ollama context window (default 8192) |
+| `LOCAL_CODER_DISCOVERY_TTL` | Seconds an engine scan is cached (default 5, `0` disables) |
+| `LOCAL_CODER_PRICE_PROMPT`, `LOCAL_CODER_PRICE_COMPLETION` | Reference USD per 1M tokens for the savings estimate (default 3 and 15) |
+| `OLLAMA_HOST` | Ollama address; `host`, `host:port`, `0.0.0.0` and a trailing `/v1` are accepted |
+| `PRISM_BASE_URL`, `FOUNDRY_BASE_URL` | Override the Prism / Foundry endpoints |
+
+---
+
+## 🩹 Self-healing
+
+For `code`, `test` and `refactor` the generated Python is checked with `ast.parse`. If it fails, the model gets the code and the error and tries again, up to 2 times. Guarantees:
+
+- A candidate must parse **and**, for `test`, contain at least one `test_*` function or `Test*` class.
+- A candidate shorter than 30% of the code it replaces is rejected: it may parse, but the model got there by discarding the content.
+- Output that was cut off at the token limit is not "healed": a repair request cannot restore the missing part. It prints `[Self-Healing] skipped` and returns what it has, together with the truncation warning.
+- After the last attempt it prints `Giving up` and returns the best effort. **The output is not guaranteed to be valid**, so check the `[Self-Healing]` lines on stderr.
+- It checks syntax only. It does not run the code or the tests.
+- Pass `--no-heal` for anything that is not Python (Dockerfiles, shell, YAML, Markdown).
 
 ---
 
 ## 📚 Related Documentation
 
+- [Routing exceptions](ROUTING.md)
 - [Prism Multi-Engine Connector](PRISM_LOCAL.md)
 - [Ollama Coder Skill Guide](OLLAMA_CODER_SKILL.md)
 - [Foundry Coder Skill Guide](FOUNDRY_CODER_SKILL.md)
 - [MCP Server Setup Guide](MCP_SERVER.md)
 - [Tutorial: Agent MCP Integration](tutorials/04_AGENT_INTEGRATION_MCP.md)
-

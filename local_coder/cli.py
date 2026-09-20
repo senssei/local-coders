@@ -24,8 +24,9 @@ def main() -> None:
     common.add_argument(
         "--max-tokens",
         type=int,
-        default=DEFAULT_MAX_TOKENS,
-        help=f"Generation limit; output cut off at this size is flagged (default: {DEFAULT_MAX_TOKENS})",
+        default=None,
+        help=f"Generation limit (default {DEFAULT_MAX_TOKENS}, doubled once if the output is cut off; "
+        "an explicit value is always respected)",
     )
     subparsers = parser.add_subparsers(dest="subcommand", help="Available actions")
 

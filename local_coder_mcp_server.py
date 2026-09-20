@@ -53,7 +53,7 @@ def handle_list_tools() -> list[dict]:
                     "max_tokens": {
                         "type": "integer",
                         "default": DEFAULT_MAX_TOKENS,
-                        "description": "Generation limit; truncated output is flagged in the result.",
+                        "description": "Generation limit (default 4096, doubled once if the output is cut off; explicit values are respected).",
                     },
                 },
                 "required": ["task"],
@@ -84,7 +84,7 @@ def handle_list_tools() -> list[dict]:
                     "max_tokens": {
                         "type": "integer",
                         "default": DEFAULT_MAX_TOKENS,
-                        "description": "Generation limit; truncated output is flagged in the result.",
+                        "description": "Generation limit (default 4096, doubled once if the output is cut off; explicit values are respected).",
                     },
                 },
                 "required": ["code"],
@@ -113,7 +113,7 @@ def handle_list_tools() -> list[dict]:
                     "max_tokens": {
                         "type": "integer",
                         "default": DEFAULT_MAX_TOKENS,
-                        "description": "Generation limit; truncated output is flagged in the result.",
+                        "description": "Generation limit (default 4096, doubled once if the output is cut off; explicit values are respected).",
                     },
                 },
                 "required": ["code"],
@@ -136,7 +136,7 @@ def handle_list_tools() -> list[dict]:
                     "max_tokens": {
                         "type": "integer",
                         "default": DEFAULT_MAX_TOKENS,
-                        "description": "Generation limit; truncated output is flagged in the result.",
+                        "description": "Generation limit (default 4096, doubled once if the output is cut off; explicit values are respected).",
                     },
                 },
                 "required": ["code"],
@@ -166,7 +166,7 @@ def handle_list_tools() -> list[dict]:
 
 def _call_tool(tool_name: str, arguments: dict) -> str:
     engine = arguments.get("engine")
-    max_tokens = int(arguments.get("max_tokens", DEFAULT_MAX_TOKENS))
+    max_tokens = int(arguments["max_tokens"]) if arguments.get("max_tokens") else None
 
     if tool_name == "local_code":
         context_code = arguments.get("context_code")

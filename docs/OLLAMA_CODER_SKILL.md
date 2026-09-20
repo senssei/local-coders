@@ -24,7 +24,7 @@ Additionally, a standalone, distributable version suitable for publishing to an 
 
 ## ⚡ CLI Subcommands (`ask_local.py`)
 
-The primary driver is `.agents/skills/ollama-coder/scripts/ask_local.py`, exposing four purpose-built subcommands:
+The primary driver is `.agents/skills/ollama-coder/scripts/ask_local.py`, exposing four purpose-built subcommands. It is a thin entry point: the work is done by the shared `local_coder` package (`local_coder/compat_ollama.py`), pinned to Ollama and calling its native `/api/chat` with `num_ctx` 8192 (`LOCAL_CODER_NUM_CTX`). Common options: `--model/-m`, `--profile/-p`, `--temperature/-t`, `--max-tokens` (default 4096, doubled once if the output is cut off; truncated output is flagged), `--output/-o`, `--no-heal`. `test` and `refactor` also accept `--task` for extra instructions, and the historical `ask_local.py --task "..."` form still means `code`.
 
 ### 1. Code Generation (`code`)
 Generates production code from natural language prompts, automatically strips markdown fences, performs AST syntax verification, and writes to the destination path:
@@ -119,10 +119,12 @@ sequenceDiagram
         else Fails Again (Retry 2)
             Driver->>LocalLLM: Retry prompt with updated diagnostics
             LocalLLM-->>Driver: Final Code Candidate
-            Driver-->>Agent: Save or Raise
+            Driver-->>Agent: Best effort + "Giving up" warning (not guaranteed valid)
         end
     end
 ```
+
+A healed candidate is also rejected when it is under 30% of the size of the code it replaces (the model dropped the content), and generated tests must contain at least one `test_*` function or `Test*` class. Details: [Self-healing](UNIFIED_LOCAL_CODER.md#-self-healing).
 
 ### Disabling Validation
 When generating non-Python languages (e.g. Bash, Rust, Go, SQL), disable the AST compiler:
@@ -152,11 +154,11 @@ $$\text{Cost Saved} = \left(\frac{\text{Prompt Tokens}}{1,000,000} \times \$3.00
 
 ## 🌐 Global Machine Installation
 
-To register the skill globally across all Antigravity agent sessions on the machine:
+To register the skill and its MCP server with every coding harness on the machine (Claude Code, Antigravity, opencode, ...):
 ```bash
-./install_global_skill.sh
+python3 install.py --python /usr/bin/python3 --components ollama-coder   # or ./install_global_skill.sh
 ```
-This script copies the skill files to `~/.gemini/config/skills/ollama-coder/` and registers the `ollama-local` MCP server in the global agent configuration.
+This stages the code in `~/.local/share/local-coders/`, links the skill into each harness, links `ask-local` / `ask_local.py` into `~/.local/bin`, and registers `ollama-local`. See the [README](../README.md#install).
 
 ---
 

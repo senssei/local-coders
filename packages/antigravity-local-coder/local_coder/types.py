@@ -39,6 +39,7 @@ class CompletionResult:
     saved_tokens: int = 0
     saved_usd: float = 0.0
     finish_reason: str = ""
+    max_tokens: int = 0  # generation limit this result was produced under
     raw_response: dict[str, Any] = field(default_factory=dict)
 
     @property

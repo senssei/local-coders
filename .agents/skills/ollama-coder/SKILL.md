@@ -66,13 +66,13 @@ Choose the model profile matching task complexity via `--profile`:
 | `coding` (default) | `qwen2.5-coder:7b` | Full feature implementations, unit test suites (100% benchmark pass rate) |
 | `reasoning` | `llama3.1:8b` | Deep code review, architectural design, complex bug analysis |
 
-You can also specify any custom Ollama model directly using `--model <model_name>`.
+You can also specify any custom Ollama model directly using `--model <model_name>`. Output is capped at `--max-tokens` (default 4096, doubled once if cut off; an explicit value is respected); a truncated result is flagged, so re-run with a larger value. Install with `python3 install.py --components ollama-coder`.
 
 ---
 
 ## Automated Self-Healing Loop
 
-All code generation subcommands (`code`, `test`, `refactor`) feature an automated Python AST and bytecode validation loop (`--auto-heal`). If the local model outputs code with syntax errors, the loop captures the compiler error and feeds it back to the local model to correct itself before saving to disk.
+All code generation subcommands (`code`, `test`, `refactor`) validate the generated Python with `ast.parse` and, on failure, feed the error back to the model (up to 2 retries). It is on by default (`--auto-heal` is accepted and ignored). Tests must contain a `test_*` function, and a "fix" that discards most of the code is rejected. If it gives up it says so on stderr and returns the best effort, so check the `[Self-Healing]` lines: the output is **not guaranteed** to be valid.
 
 Disable validation if generating non-Python code:
 ```bash

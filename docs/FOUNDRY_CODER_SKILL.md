@@ -22,7 +22,7 @@ The skill is defined in `.agents/skills/foundry-coder/`:
 
 ## ⚡ CLI Subcommands (`ask_foundry.py`)
 
-The primary CLI helper is `.agents/skills/foundry-coder/scripts/ask_foundry.py`, offering five subcommands:
+The primary CLI helper is `.agents/skills/foundry-coder/scripts/ask_foundry.py`, offering five subcommands. It is a thin entry point: the work is done by the shared `local_coder` package (`local_coder/compat_foundry.py`), which targets **Prism when it is running and Foundry Local otherwise**. Common options: `--model/-m`, `--profile/-p`, `--temperature/-t`, `--max-tokens` (default 4096, doubled once if the output is cut off), `--output/-o`, `--no-heal`. `test` and `refactor` also accept `--task` for extra instructions.
 
 ### 1. Code Generation (`code`)
 Generates Python code from descriptions, validates AST syntax, auto-loads the target model if needed, and writes to disk:
@@ -81,8 +81,10 @@ python3 .agents/skills/foundry-coder/scripts/ask_foundry.py status
 | Profile | Target Model | Recommended Use Case |
 | :--- | :--- | :--- |
 | `--profile fast` | `qwen3-0.6b` | Rapid boilerplate, simple utilities, high-throughput batching |
-| `--profile coding` *(default)* | `phi-3.5-mini` | Algorithmic logic, data structures, unit test suites |
-| `--profile reasoning` | `phi-4` / `phi-3.5-mini` | Complex architectural review, multi-step deduction |
+| `--profile coding` *(default)* | `phi-3.5-mini` (`phi-4-mini` on Prism) | Algorithmic logic, data structures, unit test suites |
+| `--profile reasoning` | `phi-4-mini` | Complex architectural review, multi-step deduction |
+
+Model names and their `parent` aliases are resolved against what the server reports, so `--model phi-3.5-mini` and the full `Phi-3.5-mini-instruct-generic-cpu:2` id both work.
 
 ---
 
@@ -90,9 +92,9 @@ python3 .agents/skills/foundry-coder/scripts/ask_foundry.py status
 
 Unlike basic wrappers, `ask_foundry.py` and `foundry_mcp_server.py` manage the Foundry lifecycle autonomously:
 1. **Dynamic Port Auto-Discovery**: Reads ephemeral listening ports from `~/.foundry/daemon.json`.
-2. **On-Demand Auto-Loading**: If a model is not currently resident in memory, the tool intercepts HTTP 400 (`"is not loaded"`), triggers `foundry model load <model>`, and retries seamlessly.
-3. **Daemon Auto-Start**: If the Foundry daemon is stopped, the tool initiates `foundry server start` automatically.
-4. **AST Self-Healing Loop**: If generated code encounters syntax errors, the trace is submitted back to the model with `temperature: 0.0` to heal itself before saving.
+2. **On-Demand Auto-Loading**: If Foundry Local answers that a model is not loaded, the tool runs `foundry model load <model>` and retries; if that command fails or the CLI is missing, the error says so. (Prism loads models by itself and is never sent to the CLI.)
+3. **Daemon Auto-Start**: If neither Prism nor the Foundry daemon answers, the tool runs `foundry server start` (only for these entry points; AUTO routing in `local_coder` never launches daemons).
+4. **AST Self-Healing Loop**: If generated code fails validation, the error is submitted back to the model with `temperature: 0.0`, at most twice; see [Self-healing](UNIFIED_LOCAL_CODER.md#-self-healing) for what it guarantees.
 
 ## 🚀 Linux & WSL2 CUDA Acceleration via Prism (`prism-local`)
 
@@ -104,17 +106,17 @@ To unlock full NVIDIA CUDA GPU acceleration on Linux / WSL2:
    prism serve --device cuda --port 5272
    ```
 2. `ask_foundry.py` and `foundry_mcp_server.py` automatically detect the active server on `http://127.0.0.1:5272/v1`.
-3. Calls to `phi-3.5-mini`, `phi-4-mini`, and `qwen2.5-coder-7b` will execute with native **CUDA Execution Provider** acceleration directly on your NVIDIA GPU without any code changes.
+3. Calls to `phi-4-mini` run with the **CUDA Execution Provider** on your NVIDIA GPU without code changes. Not every Prism model is fast: its ONNX `qwen2.5-coder-7b` build measured 6–7 tok/s; see [Prism: measured behaviour](PRISM_LOCAL.md#-measured-behaviour).
 
 ---
 
 ## 🌐 Global Machine Installation
 
-To register the skill globally across all Antigravity agent sessions on the machine:
+To register the skill and its MCP server with every coding harness on the machine (Claude Code, Antigravity, opencode, ...):
 ```bash
-./install_foundry_skill.sh
+python3 install.py --python /usr/bin/python3 --components foundry-coder   # or ./install_foundry_skill.sh
 ```
-This deploys the skill to `~/.gemini/config/skills/foundry-coder/`, creates symlinks in `~/.local/bin/ask_foundry.py`, and registers `foundry-local` in `~/.gemini/config/mcp_config.json`.
+This stages the code in `~/.local/share/local-coders/`, links the skill into each harness, links `ask-foundry` / `ask_foundry.py` into `~/.local/bin`, and registers `foundry-local`. See the [README](../README.md#install).
 
 ---
 

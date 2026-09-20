@@ -40,7 +40,12 @@ def build_parser(flavor: Flavor) -> argparse.ArgumentParser:
             "--profile", "-p", choices=["fast", "coding", "reasoning"], default=profile_default, help="Model profile"
         )
         p.add_argument("--temperature", "-t", type=float, default=0.1, help="Sampling temperature")
-        p.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS, help="Max generated tokens")
+        p.add_argument(
+            "--max-tokens",
+            type=int,
+            default=None,
+            help=f"Max generated tokens (default {DEFAULT_MAX_TOKENS}, doubled once if cut off; explicit is respected)",
+        )
         p.add_argument("--output", "-o", help="Path to write the result")
         p.add_argument("--no-heal", action="store_true", help="Disable AST validation & self-healing retry loop")
         p.add_argument("--auto-heal", action="store_true", help=argparse.SUPPRESS)  # legacy no-op: healing is default

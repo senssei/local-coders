@@ -83,6 +83,7 @@ class Ctx:
     dry_run: bool = False
     copy: bool = False
     force: bool = False
+    link: bool = False  # symlink the shared copy to this checkout instead of copying it
     use_xdg: bool = True  # honour $XDG_CONFIG_HOME (off when acting on another --home)
     env: dict[str, str] = field(default_factory=dict)
     log: Callable[[str], None] = print
@@ -383,8 +384,9 @@ HARNESSES: dict[str, Harness] = {
             lambda c: _which_native("gemini") or (c.home / ".gemini" / "settings.json").exists(),
             JsonMcp(lambda c: c.home / ".gemini" / "settings.json"),
             lambda c: c.home / ".gemini" / "skills",
-            verified=False,
-            note="~/.gemini/settings.json; on WSL a Windows-side install keeps its config under C:\\Users\\<you>",
+            verified=True,
+            note="~/.gemini/settings.json + ~/.gemini/skills (Gemini CLI disables MCP servers in untrusted folders); "
+            "on WSL a Windows-side install keeps its config under C:\\Users\\<you>",
         ),
         Harness(
             "cursor",
@@ -401,8 +403,9 @@ HARNESSES: dict[str, Harness] = {
             lambda c: _which_native("codex") or (c.home / ".codex").exists(),
             CodexToml(),
             lambda c: Path(os.environ.get("CODEX_HOME") or c.home / ".codex") / "skills",
-            verified=False,
-            note="~/.codex/config.toml managed block + ~/.codex/skills",
+            verified=True,
+            note="~/.codex/config.toml managed block (checked with `codex mcp list`) + ~/.codex/skills "
+            "(the path Codex documents for skills)",
         ),
     )
 }
@@ -417,26 +420,51 @@ def _copytree(src: Path, dst: Path) -> None:
     shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
 
 
+def _place(ctx: Ctx, src: Path, dst: Path) -> None:
+    """Put ``src`` at ``dst``: a symlink to the checkout in ``--link`` mode, a copy otherwise.
+
+    Whatever is at ``dst`` is replaced, including a symlink left by the other mode.
+    """
+    if dst.is_symlink() or dst.is_file():
+        dst.unlink()
+    elif dst.exists():
+        shutil.rmtree(dst)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if ctx.link:
+        dst.symlink_to(src)
+    elif src.is_dir():
+        shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        for script in (dst / "scripts").glob("*.py"):
+            script.chmod(0o755)
+    else:
+        shutil.copy2(src, dst)
+        dst.chmod(0o755)
+
+
 def stage(ctx: Ctx, comps: list[Component]) -> None:
-    """Copy the code that every harness registration points at into the share directory."""
+    """Put the code that every harness registration points at into the share directory (copied, or linked)."""
+    how = f"link to {REPO}" if ctx.link else "copy"
     if ctx.dry_run:
-        ctx.say("📦", f"would stage code into {ctx.share}")
+        ctx.say("📦", f"would stage code into {ctx.share} ({how})")
         return
     ctx.share.mkdir(parents=True, exist_ok=True)
-    _copytree(REPO / "local_coder", ctx.share / "local_coder")
+    _place(ctx, REPO / "local_coder", ctx.share / "local_coder")
     for script in ("ask_coder.py", *SERVER_SCRIPTS):
-        shutil.copy2(REPO / script, ctx.share / script)
-        (ctx.share / script).chmod(0o755)
+        _place(ctx, REPO / script, ctx.share / script)
     for comp in comps:
         if comp.skill:
-            _copytree(REPO / ".agents" / "skills" / comp.skill, ctx.share / "skills" / comp.skill)
-            for script in (ctx.share / "skills" / comp.skill / "scripts").glob("*.py"):
-                script.chmod(0o755)
-    ctx.say("📦", f"staged code into {ctx.share}")
+            _place(ctx, REPO / ".agents" / "skills" / comp.skill, ctx.share / "skills" / comp.skill)
+    ctx.say(
+        "📦",
+        f"staged code into {ctx.share} ({how})" + ("; edits in the checkout apply immediately" if ctx.link else ""),
+    )
 
 
-def _backup_name(path: Path) -> Path:
-    return path.with_name(f"{path.name}.bak-{time.strftime('%Y%m%d%H%M%S')}")
+def _backup_path(ctx: Ctx, harness: Harness, name: str) -> Path:
+    """Where a replaced skill directory is kept. Never inside a skills directory: a backup still holds a SKILL.md, and
+    a harness would list it as a second skill with the same name."""
+    stamp = time.strftime("%Y%m%d%H%M%S")
+    return ctx.home / ".local" / "share" / "local-coders-backups" / harness.key / f"{name}.{stamp}"
 
 
 def link_skill(ctx: Ctx, harness: Harness, comp: Component) -> None:
@@ -456,9 +484,10 @@ def link_skill(ctx: Ctx, harness: Harness, comp: Component) -> None:
     if target.is_symlink():
         target.unlink()
     elif target.exists():
-        backup = _backup_name(target)
-        target.rename(backup)
-        ctx.say("🗄️ ", f"{harness.label}: existing {target.name} moved to {backup.name}")
+        backup = _backup_path(ctx, harness, target.name)
+        backup.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(target), str(backup))
+        ctx.say("🗄️ ", f"{harness.label}: existing {target.name} moved to {backup}")
     if ctx.copy:  # self-contained: the skill plus its own copy of the package
         _copytree(source, target)
         _copytree(ctx.share / "local_coder", target / "local_coder")
@@ -699,6 +728,11 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="environment variable for the MCP servers, e.g. LOCAL_CODER_ENGINE=ollama",
     )
     p.add_argument(
+        "--link",
+        action="store_true",
+        help="symlink the shared copy to this checkout, so edits apply immediately (development; breaks if the checkout moves)",
+    )
+    p.add_argument(
         "--copy",
         action="store_true",
         help="copy skills (with their own local_coder/) instead of symlinking to the shared copy",
@@ -723,12 +757,16 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError:
         print("--env expects KEY=VAL", file=sys.stderr)
         return 2
+    if args.link and args.copy:
+        print("--link and --copy cannot be combined: --copy makes self-contained skill copies", file=sys.stderr)
+        return 2
     ctx = Ctx(
         home=home,
         share=share,
         python=args.python,
         dry_run=args.dry_run,
         copy=args.copy,
+        link=args.link,
         force=args.force,
         use_xdg=args.home is None,
         env=env,

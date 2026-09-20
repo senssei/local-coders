@@ -280,7 +280,9 @@ class TestUnifiedClient(unittest.TestCase):
                 "eval_duration": 2_000_000_000,
             },
         )
-        info = EngineInfo("Ollama", EngineType.OLLAMA, "http://localhost:11434/v1", True, installed_models=["m"])
+        info = EngineInfo(
+            "Ollama", EngineType.OLLAMA, "http://localhost:11434/v1", True, installed_models=["qwen2.5-coder:7b"]
+        )
         with patch.object(self.client.router, "resolve_target_engine", return_value=info):
             res = self.client.complete([{"role": "user", "content": "x"}], max_tokens=123)
         self.assertEqual(mock_post.call_args.args[0], "http://localhost:11434/api/chat")
@@ -303,7 +305,7 @@ class TestUnifiedClient(unittest.TestCase):
                 "telemetry": {"decode_tok_per_sec": 108.2},
             },
         )
-        info = EngineInfo("Prism", EngineType.PRISM, "http://127.0.0.1:5272/v1", True, installed_models=["m"])
+        info = EngineInfo("Prism", EngineType.PRISM, "http://127.0.0.1:5272/v1", True, installed_models=["phi-4-mini"])
         with patch.object(self.client.router, "resolve_target_engine", return_value=info):
             res = self.client.complete([{"role": "user", "content": "x"}], max_tokens=50)
         self.assertEqual(mock_post.call_args.args[0], "http://127.0.0.1:5272/v1/chat/completions")
@@ -362,7 +364,12 @@ class TestUnifiedMCPServer(unittest.TestCase):
         self.assertIn("list_local_models", names)
 
     def test_handle_call_tool_status(self):
-        resp = local_coder_mcp_server.handle_call_tool(1, "local_status", {})
+        offline = [
+            EngineInfo(n, t, "http://127.0.0.1:1/v1", False)
+            for n, t in (("Prism", EngineType.PRISM), ("Ollama", EngineType.OLLAMA), ("Foundry", EngineType.FOUNDRY))
+        ]
+        with patch.object(local_coder_mcp_server.client.router, "list_all_engines", return_value=offline):
+            resp = local_coder_mcp_server.handle_call_tool(1, "local_status", {})
         self.assertEqual(resp["id"], 1)
         text = resp["result"]["content"][0]["text"]
         self.assertIn("Local Coder Multi-Engine Status", text)

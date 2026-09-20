@@ -37,15 +37,15 @@ python3 install.py --uninstall            # remove what it added (--components a
 | Claude Code | `claude mcp add -s user` (`~/.claude.json`) | `~/.claude/skills/` | verified against the real CLI |
 | Antigravity | `~/.gemini/config/mcp_config.json` | `~/.gemini/config/skills/` | verified |
 | opencode | `~/.config/opencode/opencode.json` | reads `~/.claude/skills/`; else `~/.config/opencode/skills/` | verified against the real CLI |
-| Gemini CLI | `~/.gemini/settings.json` | `~/.gemini/skills/` | per upstream docs, unverified |
+| Gemini CLI | `~/.gemini/settings.json` | `~/.gemini/skills/` | verified against the real CLI (0.60): skills discovered, servers connect; it disables MCP servers in untrusted folders |
 | Cursor | `~/.cursor/mcp.json` | MCP only | per upstream docs, unverified |
-| Codex CLI | `~/.codex/config.toml` (managed block) | `~/.codex/skills/` | per upstream docs, unverified |
+| Codex CLI | `~/.codex/config.toml` (managed block) | `~/.codex/skills/` | verified against the real CLI (0.155): `codex mcp list` shows the servers; skills path is the one Codex documents |
 | anything else | `--mcp-json PATH` for any `{"mcpServers": ...}` file (Windsurf, Cline, ...) | | |
 
 Components: `local-coder` (default, unified), `ollama-coder`, `foundry-coder`, `prism`, or `all`. Useful flags:
 `--env LOCAL_CODER_ENGINE=ollama` (passed to the servers), `--python /usr/bin/python3` (interpreter for the MCP servers;
-it needs `requests`), `--copy` (self-contained skill copies instead of symlinks), `--force` (replace a same-named server
-you wrote yourself). Existing skill directories are moved to `*.bak-<timestamp>`, existing config files get a one-time
+it needs `requests`), `--copy` (self-contained skill copies instead of symlinks), `--link` (symlink the shared copy to this checkout so edits apply immediately, for development; do not move the checkout afterwards), `--force` (replace a same-named server
+you wrote yourself). Existing skill directories are moved to `~/.local/share/local-coders-backups/<harness>/` (not next to the skills, where a harness would list them twice), existing config files get a one-time
 `*.bak-local-coders` copy, and unparseable configs are refused rather than overwritten. Windows is not supported (use WSL);
 a Windows-side Gemini CLI keeps its config on the Windows side, out of reach of a WSL install.
 

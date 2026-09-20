@@ -6,7 +6,7 @@ This tutorial explains how to integrate local LLMs running via **Prism (CUDA)**,
 
 ## 💡 Why Offload Coding Tasks to Local Models?
 
-Leading frontier models (Claude 3.5 Sonnet, GPT-4o) cost approximately:
+As a reference point, Sonnet-class frontier models cost roughly (the telemetry uses these as a notional baseline, not your actual bill):
 - **$3.00 / 1M prompt tokens**
 - **$15.00 / 1M completion tokens**
 
@@ -22,22 +22,19 @@ By delegating deterministic coding tasks to local accelerators (Apple Silicon Me
 
 ## 🛠 Step 1: One-Click Global Installation
 
-This repository provides automated installation scripts that configure skills in `~/.gemini/config/skills/` and register MCP servers in `~/.gemini/config/mcp_config.json`:
+`install.py` stages one copy under `~/.local/share/local-coders/` and registers the skill and MCP server with every coding harness it finds (Claude Code, Antigravity, opencode, Gemini CLI, Cursor, Codex):
 
 ```bash
-# Recommended: Deploy unified cross-engine local-coder skill & MCP:
-./install_unified.sh
-
-# (Optional) Deploy standalone Prism CUDA accelerator for WSL2 / Linux:
-./install_prism.sh
-
-# (Optional) Deploy standalone Ollama & Foundry skills:
-./install_global_skill.sh
-./install_foundry_skill.sh
+python3 install.py --list                                  # supported harnesses / detected ones
+python3 install.py --dry-run                               # preview, changes nothing
+python3 install.py --python /usr/bin/python3               # unified local-coder skill + MCP (default)
+python3 install.py --python /usr/bin/python3 --components all   # + ollama-coder, foundry-coder, prism
+python3 install.py --harness claude-code,opencode          # only some harnesses
 ```
+Restart the harness afterwards. `--python` matters: the MCP servers run with that interpreter, which needs the `requests` package. `python3 install.py --uninstall` removes what it added. The old `./install_*.sh` scripts still work as wrappers.
 
-### Manual Configuration for Other Agents (Cursor / Claude Desktop / Windsurf)
-If configuring Cursor or Claude Desktop, add the unified `local-coder` server to your `mcp_config.json` or `claude_desktop_config.json`:
+### Manual Configuration for Other Agents (Claude Desktop / Windsurf / anything with an `mcpServers` file)
+`install.py --mcp-json PATH` writes any such file for you. By hand, add the unified `local-coder` server to your `mcp_config.json` or `claude_desktop_config.json`:
 
 ```json
 {
@@ -63,20 +60,22 @@ If configuring Cursor or Claude Desktop, add the unified `local-coder` server to
 Once registered, your agent gains access to the following native tool calls:
 
 ### 1. Unified Cross-Engine Tools (`local-coder` - Recommended)
-- **`local_code(task, context, engine, profile)`**: Generates verified Python code with AST self-healing across Prism, Ollama, or Foundry.
-- **`local_test(file_path, code, framework, engine)`**: Generates unit test suites (`pytest` or `unittest`) with edge cases and mock fixtures.
-- **`local_code_review(file_path, code, focus, engine)`**: Audits code for security vulnerabilities, race conditions, and memory leaks.
-- **`local_refactor(file_path, code, type_hints, docstrings, engine)`**: Adds strict type annotations (`typing`) and docstrings.
-- **`local_status()`**: Returns live hardware detection and engine availability.
+- **`local_code(task, context_code, engine, profile, model, max_tokens)`**: Generates Python with AST self-healing across Prism, Ollama, or Foundry.
+- **`local_test(code, file_path, framework, engine, max_tokens)`**: Generates unit test suites (`pytest` or `unittest`) with edge cases and mock fixtures.
+- **`local_code_review(code, file_path, focus, engine, max_tokens)`**: Audits code for security vulnerabilities, race conditions, and memory leaks.
+- **`local_refactor(code, file_path, type_hints, docstrings, engine, max_tokens)`**: Adds strict type annotations (`typing`) and docstrings.
+- **`local_status(explain)`**: Returns live hardware detection and engine availability; `explain` adds the routing rules and where each task would go.
 - **`list_local_models()`**: Aggregates all installed models across Prism, Ollama, and Foundry.
+
+`max_tokens` defaults to 4096; output cut off at the limit is flagged in the result. Which engine answers in `auto` mode, and how to override it per task or project, is covered in [Routing exceptions](../ROUTING.md).
 
 ### 2. Standalone Ollama Tools (`ollama-local`)
 - **`ask_local_coder(task, context_code, model)`**: Instructs `qwen2.5-coder:7b` to write implementations, algorithms, and classes.
-- **`local_code_review(code, focus)`**: Uses reasoning models (`llama3.1:8b`) to audit code for bugs and concurrency issues.
+- **`local_code_review(code, focus)`**: Audits code for bugs and concurrency issues with the server's default model (`DEFAULT_MODEL`, `qwen2.5-coder:7b`).
 - **`list_local_models()`**: Queries available Ollama models.
 
 ### 3. Standalone Foundry Local Tools (`foundry-local`)
-- **`ask_foundry_coder(task, context_code, model)`**: Generates code using ONNX Runtime GenAI (`phi-3.5-mini`).
+- **`ask_foundry_coder(task, context_code, model)`**: Generates code on Prism when it is running, else Foundry Local (ONNX Runtime GenAI); default model from the `coding` profile.
 - **`foundry_code_review(code, focus)`**: Audits code via Foundry Local.
 - **`get_foundry_status()`**: Returns daemon health, PID, and active port.
 
@@ -111,8 +110,11 @@ ask-coder refactor \
   --docstrings \
   --output src/legacy_util_typed.py
 
-# Engine status & hardware diagnostics:
-ask-coder status
+# Engine status & hardware diagnostics (--explain adds the routing rules):
+ask-coder status --explain
+
+# Force an engine (a global option, so it goes before the subcommand):
+ask-coder --engine ollama code --task "..."
 ```
 
 ---
@@ -120,13 +122,12 @@ ask-coder status
 ## 🔄 Step 4: How AST Self-Healing Works
 
 When an agent generates Python code:
-1. The client compiles the generated code using Python's `ast.parse()`.
-2. If a `SyntaxError` or `IndentationError` occurs:
-   - The system captures the exact traceback and offending line/column numbers.
-   - It re-prompts the local model with the diagnostic trace:  
-     `"[Self-Healing] Syntax error detected on line 14: ... Please fix and re-emit clean code."`
-   - It attempts self-correction up to **2 consecutive times**.
-3. Only verified, syntactically valid Python code is emitted and saved to disk.
+1. The client parses the generated code with Python's `ast.parse()` (for tests it also requires at least one `test_*` function or `Test*` class).
+2. If that fails:
+   - The error (line, column, message) and the offending code go back to the local model.
+   - A candidate that parses but is under 30% of the size of the code it replaces is rejected, because the model dropped the content rather than fixing it.
+   - It retries up to **2 times**.
+3. If it still fails, it prints `[Self-Healing] Giving up` on stderr and returns the best effort, so **the result is not guaranteed to be valid**. Syntax is all it checks; it never runs the code.
 
 > [!TIP]
 > **Generating Non-Python Code:**  

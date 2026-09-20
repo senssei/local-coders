@@ -39,6 +39,26 @@ MODEL_PROFILES: dict[str, dict[str, str]] = {
 }
 
 
+# Tried in order, after MODEL_PROFILES' preferred model, when that model is not installed on the engine.
+MODEL_FALLBACKS: dict[str, dict[str, list[str]]] = {
+    "coding": {
+        "prism": ["phi-3.5-mini"],
+        "ollama": ["qwen2.5-coder:14b", "qwen2.5-coder:3b"],
+        "foundry": ["phi-4-mini"],
+    },
+    "fast": {
+        "prism": ["phi-4-mini"],
+        "ollama": ["qwen2.5-coder:7b"],
+        "foundry": ["phi-3.5-mini"],
+    },
+    "reasoning": {
+        "prism": ["phi-4-mini"],
+        "ollama": ["qwen2.5-coder:14b", "qwen2.5-coder:7b"],
+        "foundry": ["phi-3.5-mini"],
+    },
+}
+
+
 def normalize_ollama_host(raw: str | None) -> tuple[str, str]:
     """Turn an ``OLLAMA_HOST`` value into ``(native_host, openai_v1_url)``.
 
@@ -117,6 +137,10 @@ class EngineRouter:
         # An engine that just failed is skipped for a while so retries and healing loops do not wait on it again.
         self.cooldown_sec = float(os.environ.get("LOCAL_CODER_COOLDOWN") or 30)
         self._failed_at: dict[EngineType, float] = {}
+        # Discovery is a few HTTP calls; AUTO routing and failover would otherwise repeat them on every request,
+        # including each retry of the self-healing loop. 0 disables the cache.
+        self.discovery_ttl = float(os.environ.get("LOCAL_CODER_DISCOVERY_TTL") or 5)
+        self._discovered: tuple[float, list[EngineInfo]] | None = None
 
     def discover_prism(self) -> EngineInfo:
         """Inspect Prism server status."""
@@ -141,7 +165,7 @@ class EngineRouter:
             engine_type=EngineType.PRISM,
             base_url=base_url,
             is_online=is_online,
-            version="prism-local 0.1.0 (CUDA)" if is_online else "offline",
+            version="prism-local" if is_online else "offline",
             hardware=self.hardware,
             installed_models=models,
             latency_ms=round(latency, 2),
@@ -226,8 +250,17 @@ class EngineRouter:
         )
 
     def list_all_engines(self) -> list[EngineInfo]:
-        """Scan and return status of all three local inference engines."""
-        return [self.discover_prism(), self.discover_ollama(), self.discover_foundry()]
+        """Status of all three local inference engines, cached for ``discovery_ttl`` seconds."""
+        now = time.monotonic()
+        if self._discovered is not None and now - self._discovered[0] < self.discovery_ttl:
+            return list(self._discovered[1])
+        engines = [self.discover_prism(), self.discover_ollama(), self.discover_foundry()]
+        self._discovered = (now, engines)
+        return list(engines)
+
+    def invalidate_discovery(self) -> None:
+        """Forget cached engine status (something just changed, or the caller wants live data)."""
+        self._discovered = None
 
     def start_foundry_daemon(self) -> bool:
         """Try ``foundry server start``. Returns True when the CLI ran successfully."""
@@ -241,6 +274,7 @@ class EngineRouter:
         except Exception:
             return False
         time.sleep(2)
+        self.invalidate_discovery()
         return True
 
     def resolve_target_engine(
@@ -312,6 +346,7 @@ class EngineRouter:
 
     def mark_failed(self, engine_type: EngineType) -> None:
         self._failed_at[engine_type] = time.monotonic()
+        self.invalidate_discovery()
 
     def mark_ok(self, engine_type: EngineType) -> None:
         self._failed_at.pop(engine_type, None)

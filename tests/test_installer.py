@@ -261,7 +261,8 @@ class TestSkillsAndStaging(InstallerCase):
         (skill / "OLD.md").write_text("old copy")
         self.run_installer("--harness", "antigravity")
         self.assertTrue(skill.is_symlink())
-        backups = list(skill.parent.glob("local-coder.bak-*"))
+        self.assertEqual(list(skill.parent.glob("local-coder.*")), [])  # no second SKILL.md inside the skills dir
+        backups = list((self.home / ".local" / "share" / "local-coders-backups" / "antigravity").glob("local-coder.*"))
         self.assertEqual(len(backups), 1)
         self.assertEqual((backups[0] / "OLD.md").read_text(), "old copy")
 
@@ -330,6 +331,65 @@ class TestSkillsAndStaging(InstallerCase):
             self.run_installer("--harness", "cursor", "--components", "prism")
         entry = self.read(".cursor/mcp.json")["mcpServers"]["prism"]
         self.assertEqual((entry["command"], entry["args"]), (str(fake / "prism"), ["mcp"]))
+
+
+class TestLinkMode(InstallerCase):
+    def test_share_directory_points_at_the_checkout(self):
+        out = self.run_installer("--harness", "cursor", "--link", "--components", "local-coder,ollama-coder")
+        self.assertIn("edits in the checkout apply immediately", out)
+        for rel in ("local_coder", "local_coder_mcp_server.py", "ask_coder.py", "skills/ollama-coder"):
+            with self.subTest(item=rel):
+                self.assertTrue((self.share / rel).is_symlink())
+        self.assertEqual((self.share / "local_coder").resolve(), REPO_ROOT / "local_coder")
+        self.assertEqual(
+            (self.share / "skills" / "local-coder").resolve(), REPO_ROOT / ".agents" / "skills" / "local-coder"
+        )
+
+    def test_skill_scripts_and_cli_links_work_through_the_symlinks(self):
+        self.run_installer("--harness", "antigravity", "--link", "--components", "local-coder,ollama-coder")
+        skills = self.home / ".gemini" / "config" / "skills"
+        for script in (
+            skills / "ollama-coder" / "scripts" / "ask_local.py",
+            skills / "local-coder" / "scripts" / "ask_coder.py",
+            self.home / ".local" / "bin" / "ask-coder",
+        ):
+            with self.subTest(script=script.name):
+                proc = subprocess.run([sys.executable, str(script), "--help"], capture_output=True, text=True, cwd="/")
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_switching_between_link_and_copy_in_both_directions(self):
+        self.run_installer("--harness", "cursor", "--link")
+        self.run_installer("--harness", "cursor")  # back to a copy: must not trip over the symlinks
+        self.assertFalse((self.share / "local_coder").is_symlink())
+        self.assertFalse((self.share / "ask_coder.py").is_symlink())
+        self.assertTrue(os.access(self.share / "ask_coder.py", os.X_OK))
+        self.run_installer("--harness", "cursor", "--link")
+        self.assertTrue((self.share / "local_coder").is_symlink())
+        self.assertIn("unchanged", self.run_installer("--harness", "cursor", "--link"))
+
+    def test_uninstall_never_touches_the_checkout(self):
+        self.run_installer("--harness", "cursor", "--link", "--components", "all")
+        self.run_installer("--harness", "cursor", "--components", "all", "--uninstall")
+        self.assertFalse(self.share.exists())
+        for rel in (
+            "local_coder/__init__.py",
+            "ask_coder.py",
+            "local_coder_mcp_server.py",
+            ".agents/skills/local-coder/SKILL.md",
+        ):
+            with self.subTest(file=rel):
+                self.assertTrue((REPO_ROOT / rel).is_file(), f"{rel} was deleted from the checkout")
+
+    def test_link_and_copy_cannot_be_combined(self):
+        out = self.run_installer("--harness", "cursor", "--link", "--copy", expect=2)
+        self.assertIn("cannot be combined", out)
+        self.assertFalse(self.share.exists())
+
+    def test_dry_run_announces_the_mode_and_changes_nothing(self):
+        out = self.run_installer("--harness", "cursor", "--link", "--dry-run")
+        self.assertIn("would stage code", out)
+        self.assertIn("link to", out)
+        self.assertFalse(self.share.exists())
 
 
 class TestCli(InstallerCase):

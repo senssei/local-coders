@@ -7,7 +7,7 @@ description: Unified cross-engine local coding skill. Offload code generation, u
 
 The **Unified Local Coder** enables AI coding agents and subagents to offload implementation routines, test authoring, security reviews, and refactoring to local LLMs with zero token cost.
 
-It automatically probes and routes requests to the fastest available local inference engine on your hardware:
+It probes the local inference engines and routes each request to the first one that is online in a fixed order (Prism → Ollama → Foundry on Linux/WSL2; Ollama first on macOS), with exceptions you can configure (`test` prefers Ollama; see `docs/ROUTING.md`):
 1. **Prism** (`http://127.0.0.1:5272/v1`): Direct NVIDIA CUDA GPU acceleration for ONNX Runtime GenAI models on Linux/WSL2.
 2. **Ollama** (`http://127.0.0.1:11434`): Apple Silicon Metal UMA or NVIDIA CUDA for GGUF models (`qwen2.5-coder:7b`, `llama3.1:8b`).
 3. **Microsoft Foundry Local**: Automated fallback for local ONNX models.
@@ -43,8 +43,11 @@ python3 ask_coder.py code \
   --output src/redis_cache.py
 ```
 
-Long outputs (tests, refactors of big files) are capped at `--max-tokens` (default 4096). If the cap is hit the
-result is flagged with a `⚠️ Output truncated` line; re-run with a larger `--max-tokens`. The default engine can be
+Long outputs (tests, refactors of big files) are capped at `--max-tokens` (default 4096). If the default cap is hit
+the request is retried once with double the budget; if the output is still cut off, or you set `--max-tokens`
+yourself, the result is flagged with a `⚠️ Output truncated` line (self-healing is skipped for such output), so
+re-run with a larger value. If a profile's model is not installed, an installed alternative is used and a `[model]`
+line says so. The default engine can be
 pinned with `LOCAL_CODER_ENGINE=auto|prism|ollama|foundry`. Exceptions to the AUTO order (e.g. `test` goes to Ollama)
 live in `.local-coder/routing.json`; see `ask_coder.py status --explain` and `docs/ROUTING.md`.
 
@@ -74,17 +77,23 @@ python3 ask_coder.py refactor \
 
 ### 5. Engine Status & Hardware Diagnostics
 ```bash
-python3 ask_coder.py status
+python3 ask_coder.py status --explain
+```
+
+### 6. Forcing an engine
+`--engine` is a global option and goes before the subcommand (an explicit engine bypasses routing rules):
+```bash
+python3 ask_coder.py --engine ollama code --task "..."
 ```
 
 ---
 
 ## 🔌 Model Context Protocol (MCP)
 
-When registered via `./install_unified.sh`, the stdio MCP server `local-coder-unified-mcp` exposes the following tools:
-- `local_code(task, context, engine, profile)`
-- `local_test(file_path, code, framework, engine)`
-- `local_code_review(file_path, code, focus, engine)`
-- `local_refactor(file_path, code, type_hints, docstrings, engine)`
-- `local_status()`
+When registered via `python3 install.py` (or `./install_unified.sh`), the stdio MCP server `local-coder-unified-mcp` exposes the following tools:
+- `local_code(task, context_code, engine, profile, model, max_tokens)`
+- `local_test(code, file_path, framework, engine, max_tokens)`
+- `local_code_review(code, file_path, focus, engine, max_tokens)`
+- `local_refactor(code, file_path, type_hints, docstrings, engine, max_tokens)`
+- `local_status(explain)`: `explain` adds the routing rules and where each task would go
 - `list_local_models()`

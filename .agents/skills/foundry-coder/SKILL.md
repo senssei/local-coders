@@ -72,16 +72,16 @@ Choose the model profile matching task complexity via `--profile`:
 | Profile | Target Model | Ideal Use Case |
 |---|---|---|
 | `fast` | `qwen3-0.6b` | Fast boilerplate, simple helpers, high-throughput utility tasks |
-| `coding` *(default)* | `Phi-3.5-mini-instruct-generic-cpu:2` | Feature implementations, unit test suites, algorithmic problem solving |
-| `reasoning` | `phi-4` / `Phi-3.5-mini` | Deep code review, architectural design, complex bug diagnosis |
+| `coding` *(default)* | `phi-3.5-mini` (`phi-4-mini` when Prism serves the request) | Feature implementations, unit test suites, algorithmic problem solving |
+| `reasoning` | `phi-4-mini` | Deep code review, architectural design, complex bug diagnosis |
 
-You can also specify any custom model directly using `--model <model_id>`.
+You can also specify any custom model directly using `--model <model_id>`; aliases such as `phi-3.5-mini` are resolved. Requests go to Prism if it is running, else Foundry Local. Output is capped at `--max-tokens` (default 4096, doubled once if cut off; an explicit value is respected) and truncation is flagged. Install with `python3 install.py --components foundry-coder`.
 
 ---
 
 ## 🔄 Automated Self-Healing Loop
 
-All code generation subcommands (`code`, `test`, `refactor`) feature an automated Python AST and bytecode validation loop (`--auto-heal`). If the local model outputs code with syntax errors, the loop captures the compiler error and feeds it back to the local model to correct itself before saving to disk.
+All code generation subcommands (`code`, `test`, `refactor`) validate the generated Python with `ast.parse` and, on failure, feed the error back to the model (up to 2 retries). It is on by default. Tests must contain a `test_*` function, and a "fix" that discards most of the code is rejected. If it gives up it says so on stderr and returns the best effort: the output is **not guaranteed** to be valid.
 
 Disable validation if generating non-Python code:
 ```bash
@@ -107,7 +107,7 @@ Microsoft Foundry Local is exposed as a stdio MCP server ([`foundry_mcp_server.p
 
 ## 🤖 Guidelines for Subagents
 
-1. **Default Model**: The recommended default model for code generation in Foundry is **`Phi-3.5-mini-instruct-generic-cpu:2`**.
-2. **Auto-Discovery**: `ask_foundry.py` automatically reads active daemon ports from `~/.foundry/daemon.json`.
+1. **Default Model**: the `coding` profile: `phi-3.5-mini` on Foundry Local, `phi-4-mini` on Prism. Override with `--model`.
+2. **Auto-Discovery**: `ask_foundry.py` prefers a running Prism (`127.0.0.1:5272`), else reads the Foundry daemon port from `~/.foundry/daemon.json`.
 3. **Verification**: Always run unit tests (`pytest` or `python3 -m unittest ...`) prior to concluding any task.
-4. **Daemon Launch**: If the Foundry daemon is stopped, start it via `foundry server start`.
+4. **Daemon Launch**: if neither engine answers, `ask_foundry.py` and `foundry_mcp_server.py` run `foundry server start` themselves; you can also start it manually.

@@ -1,20 +1,28 @@
 """Telemetry and cost savings calculations for local_coder."""
 
+import os
+
 from .types import CompletionResult
 
-# Standard frontier cloud model pricing (USD per 1M tokens)
-# Claude 3.5 Sonnet / GPT-4o baseline
-CLAUDE_35_SONNET_PROMPT_PRICE_PER_M = 3.00
-CLAUDE_35_SONNET_COMPLETION_PRICE_PER_M = 15.00
+# Reference prices (USD per 1M tokens) for the "cloud tokens saved" estimate. They stand for a Sonnet-class frontier
+# model and are a notional baseline, not a bill; override with LOCAL_CODER_PRICE_PROMPT / LOCAL_CODER_PRICE_COMPLETION.
+REFERENCE_PROMPT_PRICE_PER_M = 3.00
+REFERENCE_COMPLETION_PRICE_PER_M = 15.00
+
+
+def _price(env_name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(env_name) or default)
+    except ValueError:
+        return default
 
 
 def calculate_savings(prompt_tokens: int, completion_tokens: int) -> tuple[int, float]:
-    """Calculate total cloud tokens saved and estimated USD savings against frontier models."""
-    total_saved_tokens = prompt_tokens + completion_tokens
-    prompt_cost = (prompt_tokens / 1_000_000) * CLAUDE_35_SONNET_PROMPT_PRICE_PER_M
-    completion_cost = (completion_tokens / 1_000_000) * CLAUDE_35_SONNET_COMPLETION_PRICE_PER_M
-    saved_usd = prompt_cost + completion_cost
-    return total_saved_tokens, saved_usd
+    """Total tokens that did not go to a cloud model, and their notional cost at the reference prices."""
+    prompt_price = _price("LOCAL_CODER_PRICE_PROMPT", REFERENCE_PROMPT_PRICE_PER_M)
+    completion_price = _price("LOCAL_CODER_PRICE_COMPLETION", REFERENCE_COMPLETION_PRICE_PER_M)
+    saved_usd = (prompt_tokens / 1_000_000) * prompt_price + (completion_tokens / 1_000_000) * completion_price
+    return prompt_tokens + completion_tokens, saved_usd
 
 
 def format_telemetry_banner(
@@ -46,6 +54,7 @@ def format_result_banner(res: CompletionResult, max_tokens: int | None = None) -
         res.saved_usd,
     )
     if res.truncated:
-        limit = f" ({max_tokens})" if max_tokens else ""
+        limit_value = res.max_tokens or max_tokens
+        limit = f" ({limit_value})" if limit_value else ""
         banner += f"\n⚠️ Output truncated at the max_tokens limit{limit}; raise --max-tokens / max_tokens and retry."
     return banner

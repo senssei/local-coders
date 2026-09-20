@@ -27,11 +27,11 @@ The repository provides modular and unified stdio MCP servers:
 ### 🌟 Unified Server Tools (`local-coder` - Recommended)
 | Tool | Parameters | Description |
 | :--- | :--- | :--- |
-| **`local_code`** | `task` *(str)*, `context` *(opt str)*, `engine` *(opt str)*, `profile` *(opt str)* | Generates Python code with AST self-healing, routing across Prism, Ollama, or Foundry. |
-| **`local_test`** | `file_path` *(str)*, `code` *(str)*, `framework` *(opt str)*, `engine` *(opt str)* | Authors comprehensive unit tests (`pytest` or `unittest`) with edge cases and mocks. |
-| **`local_code_review`** | `file_path` *(str)*, `code` *(str)*, `focus` *(opt str)*, `engine` *(opt str)* | Audits code for security vulnerabilities, race conditions, and performance bottlenecks. |
-| **`local_refactor`** | `file_path` *(str)*, `code` *(str)*, `type_hints` *(opt bool)*, `docstrings` *(opt bool)*, `engine` *(opt str)* | Injects strict type annotations (`typing`) and PEP 257 docstrings. |
-| **`local_status`** | *None* | Reports hardware detection, connected inference engines, endpoints, and latency. |
+| **`local_code`** | `task` *(str)*, `context_code` *(opt str)*, `engine` *(opt str)*, `profile` *(opt str)*, `model` *(opt str)*, `max_tokens` *(opt int)* | Generates Python code with AST self-healing, routing across Prism, Ollama, or Foundry. |
+| **`local_test`** | `code` *(str)*, `file_path` *(opt str)*, `framework` *(opt str)*, `engine` *(opt str)*, `max_tokens` *(opt int)* | Authors comprehensive unit tests (`pytest` or `unittest`) with edge cases and mocks. |
+| **`local_code_review`** | `code` *(str)*, `file_path` *(opt str)*, `focus` *(opt str)*, `engine` *(opt str)*, `max_tokens` *(opt int)* | Audits code for security vulnerabilities, race conditions, and performance bottlenecks. |
+| **`local_refactor`** | `code` *(str)*, `file_path` *(opt str)*, `type_hints` *(opt bool)*, `docstrings` *(opt bool)*, `engine` *(opt str)*, `max_tokens` *(opt int)* | Injects strict type annotations (`typing`) and PEP 257 docstrings. |
+| **`local_status`** | `explain` *(opt bool)* | Reports hardware, engines, endpoints and latency; `explain` adds the active [routing rules](ROUTING.md). |
 | **`list_local_models`** | *None* | Discovers and aggregates all installed models across Prism, Ollama, and Foundry. |
 
 ---
@@ -51,15 +51,15 @@ The repository provides modular and unified stdio MCP servers:
 | Tool | Parameters | Description |
 | :--- | :--- | :--- |
 | **`ask_local_coder`** | `task` *(str)*, `context_code` *(opt str)*, `model` *(opt str)* | Directs a local coding model (defaults to `qwen2.5-coder:7b`) to implement a function, class, or module. |
-| **`local_code_review`** | `code` *(str)*, `focus` *(opt str)* | Audits provided code for bugs, race conditions, and performance bottlenecks using reasoning models (`llama3.1:8b`). |
-| **`list_local_models`** | *None* | Queries Ollama daemon and lists all available models, quantization levels, and memory sizes. |
+| **`local_code_review`** | `code` *(str)*, `focus` *(opt str)* | Audits provided code for bugs, race conditions, and performance bottlenecks with the server's default model (`DEFAULT_MODEL`, `qwen2.5-coder:7b`). |
+| **`list_local_models`** | *None* | Queries the Ollama daemon and lists installed models with their sizes in GB. |
 
 ---
 
 ### C. Foundry Local Server Tools (`foundry-local`)
 | Tool | Parameters | Description |
 | :--- | :--- | :--- |
-| **`ask_foundry_coder`** | `task` *(str)*, `context_code` *(opt str)*, `model` *(opt str)* | Directs Microsoft Foundry Local (defaults to `phi-3.5-mini`) to generate code, algorithms, or unit tests. |
+| **`ask_foundry_coder`** | `task` *(str)*, `context_code` *(opt str)*, `model` *(opt str)* | Generates code, algorithms, or unit tests on Prism when it is running, else Foundry Local (default model comes from the `coding` profile; override with `model`). |
 | **`foundry_code_review`** | `code` *(str)*, `focus` *(opt str)*, `model` *(opt str)* | Audits code for security vulnerabilities, race conditions, and memory leaks using ONNX Runtime GenAI. |
 | **`list_foundry_models`** | *None* | Lists all models currently installed and available in Microsoft Foundry Local. |
 | **`get_foundry_status`** | *None* | Queries daemon PID, URL, active listening port, and health check status. |
@@ -68,31 +68,25 @@ The repository provides modular and unified stdio MCP servers:
 
 ## 3. Client Configuration
 
-### A. Global 1-Click Installation (Antigravity CLI / IDE)
-Install skills and register MCP servers globally in `~/.gemini/config/mcp_config.json`:
+### A. One installer for every harness
+`install.py` stages one copy of the servers under `~/.local/share/local-coders/` and registers them with every coding harness it detects (Claude Code, Antigravity, opencode, Gemini CLI, Cursor, Codex; anything else via `--mcp-json`). See the [README](../README.md#install) for the harness table.
 
 ```bash
-# 1. Install Unified Local Coder (Recommended):
-./install_unified.sh
-
-# 2. (Optional) Install standalone Prism CUDA runner:
-./install_prism.sh
-
-# 3. (Optional) Install standalone Ollama / Foundry skills:
-./install_global_skill.sh
-./install_foundry_skill.sh
+python3 install.py --list                 # what is supported / detected
+python3 install.py --dry-run              # preview
+python3 install.py --python /usr/bin/python3                      # unified local-coder (default)
+python3 install.py --python /usr/bin/python3 --components all     # plus ollama-local, foundry-local, prism
+python3 install.py --uninstall
 ```
+The old `install_unified.sh`, `install_global_skill.sh`, `install_foundry_skill.sh` and `install_prism.sh` are wrappers around it.
 
-Resulting `~/.gemini/config/mcp_config.json`:
+Resulting Antigravity entry (`~/.gemini/config/mcp_config.json`) with `--components all`; other harnesses get the same servers in their own format:
 ```json
 {
   "mcpServers": {
     "local-coder": {
-      "command": "python3",
-      "args": ["/home/senssei/.gemini/config/skills/local-coder/local_coder_mcp_server.py"],
-      "env": {
-        "LOCAL_CODER_ENGINE": "auto"
-      }
+      "command": "/usr/bin/python3",
+      "args": ["/home/you/.local/share/local-coders/local_coder_mcp_server.py"]
     },
     "prism": {
       "command": "prism",
@@ -102,19 +96,12 @@ Resulting `~/.gemini/config/mcp_config.json`:
       }
     },
     "ollama-local": {
-      "command": "python3",
-      "args": ["/home/senssei/.gemini/config/skills/ollama-coder/ollama_mcp_server.py"],
-      "env": {
-        "OLLAMA_HOST": "http://localhost:11434",
-        "DEFAULT_MODEL": "qwen2.5-coder:7b"
-      }
+      "command": "/usr/bin/python3",
+      "args": ["/home/you/.local/share/local-coders/ollama_mcp_server.py"]
     },
     "foundry-local": {
-      "command": "python3",
-      "args": ["/home/senssei/.gemini/config/skills/foundry-coder/foundry_mcp_server.py"],
-      "env": {
-        "FOUNDRY_DEFAULT_MODEL": "phi-3.5-mini"
-      }
+      "command": "/usr/bin/python3",
+      "args": ["/home/you/.local/share/local-coders/foundry_mcp_server.py"]
     }
   }
 }
@@ -123,6 +110,10 @@ Resulting `~/.gemini/config/mcp_config.json`:
 > [!IMPORTANT]
 > **WSL2 / Linux IPv4 Resolution**:  
 > Always configure endpoints with `http://127.0.0.1:5272/v1` rather than `localhost:5272`. In WSL2, `localhost` may resolve to IPv6 `::1`, resulting in connection refused errors.
+
+---
+
+The `ollama-local` and `foundry-local` servers are thin entry points over `local_coder` and keep their original tool names. They read `OLLAMA_HOST` and `DEFAULT_MODEL` (Ollama), `FOUNDRY_BASE_URL` and `PRISM_BASE_URL` (Foundry), and report failures as tool text rather than protocol errors. Pass any of these with `install.py --env KEY=VAL`.
 
 ---
 
@@ -146,7 +137,7 @@ Add to your `claude_desktop_config.json` (`~/Library/Application Support/Claude/
 ---
 
 ### C. Cursor & Windsurf
-Add to your Cursor MCP settings (`~/.cursor/mcp.json`):
+`python3 install.py --harness cursor` writes `~/.cursor/mcp.json` for you (for Windsurf and other clients use `--mcp-json PATH`). By hand, add to `~/.cursor/mcp.json`:
 
 ```json
 {
@@ -166,4 +157,4 @@ Add to your Cursor MCP settings (`~/.cursor/mcp.json`):
 
 ## 4. Standalone Distribution Packages
 
-- **`antigravity-local-coder`**: Located in [`packages/antigravity-local-coder/`](../packages/antigravity-local-coder/) with independent `install.sh`, `plugin.json`, and MIT license.
+- **`antigravity-local-coder`**: Located in [`packages/antigravity-local-coder/`](../packages/antigravity-local-coder/) with independent `install.sh`, `plugin.json`, and MIT license. It bundles its own copy of the `local_coder` package, which `tests/test_packaging_sync.py` keeps identical to the source.

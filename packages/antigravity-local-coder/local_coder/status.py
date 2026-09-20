@@ -11,6 +11,7 @@ def format_status(router: EngineRouter, max_models: int = 4, explain: bool = Fal
     Prism and Foundry Local both default to ``127.0.0.1:5272``; when one server answers for both, only the
     higher-priority engine is real and the other is shown as an alias instead of a second live engine.
     """
+    router.invalidate_discovery()  # a status report should show live data, not a cached scan
     engines = router.list_all_engines()
     owner_by_url = {e.base_url.rstrip("/"): e for e in router.rank_online(engines)}
 

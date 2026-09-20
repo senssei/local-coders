@@ -58,4 +58,6 @@ export OLLAMA_KEEP_ALIVE=30m
 export OLLAMA_FLASH_ATTENTION=1
 ```
 
+`ollama-coder` calls Ollama's native `/api/chat` with `num_ctx` 8192 (override with `LOCAL_CODER_NUM_CTX`), so the prompt and up to `--max-tokens` (default 4096) of output fit in the context window. The `/v1` endpoint would ignore `num_ctx`.
+
 Apply these settings to your shell profile or systemd service (`/etc/systemd/system/ollama.service.d/override.conf` on Linux).

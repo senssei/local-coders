@@ -39,4 +39,4 @@ Keys:
 - `web_urls`: `["http://127.0.0.1:<port>"]`
 - `port`: `<port>`
 
-The `FoundryClient` and `ask_foundry.py` automatically read this configuration, preventing manual port management.
+`ask_foundry.py` and `foundry_mcp_server.py` (through `local_coder`) read this file automatically, preventing manual port management. They look for a running Prism on `127.0.0.1:5272` first.

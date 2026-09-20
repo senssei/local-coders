@@ -24,9 +24,10 @@ However, on **Linux / WSL2**:
 
 ## 🛠 Quickstart & CLI Commands
 
-Install Prism globally via the bundled installer:
+Register the Prism MCP server with your coding harnesses via the bundled installer (it needs `prism` on `PATH`; install
+Prism itself with `pip install 'prism-local[cuda]'`):
 ```bash
-./install_prism.sh
+python3 install.py --components prism        # or the wrapper: ./install_prism.sh
 ```
 
 ### 1. Environment Diagnostics (`prism doctor`)
@@ -57,7 +58,7 @@ prism run --device cuda phi-4-mini "Write a thread-safe singleton in Python."
 
 ## 🔌 Model Context Protocol (MCP) Integration
 
-Prism includes a native stdio MCP server registered via `./install_prism.sh` into `~/.gemini/config/mcp_config.json`:
+Prism includes a native stdio MCP server, registered by `python3 install.py --components prism` in each detected harness (for Antigravity: `~/.gemini/config/mcp_config.json`):
 
 ```json
 {
@@ -92,8 +93,29 @@ Prism includes a native stdio MCP server registered via `./install_prism.sh` int
 | **WSL2 GPU Detection** | Native CUDA | ❌ Failed (defaults to CPU) | ✅ Native NVML (`libnvidia-ml.so.1`) |
 | **Listening Port** | Fixed (`11434`) | Ephemeral (Dynamic) | Fixed (`5272`) |
 | **Execution Provider** | CUDA / Metal | CPU (on WSL2) | CUDA / CPU / DirectML |
-| **Target Models** | `qwen2.5-coder`, `llama3.1` | `phi-3.5-mini`, `qwen3-0.6b` | `phi-3.5-mini`, `phi-4-mini`, `qwen2.5-coder` |
+| **Target Models** | `qwen2.5-coder`, `llama3.1` | `phi-3.5-mini`, `qwen3-0.6b` | `phi-4-mini`, `phi-3.5-mini`; `qwen2.5-coder` ONNX is slow, see below |
 | **Agent Skill** | `ollama-coder` | `foundry-coder` | Drop-in for `foundry-coder` & native MCP |
+
+---
+
+## 📈 Measured behaviour
+
+One machine, one small prompt (a FizzBuzz function), warm models unless noted: RTX 5070 (12 GB), WSL2, 2026-09-20. Treat these as indicative, not a benchmark.
+
+| Engine | Model | Decode speed |
+|:---|:---|:---:|
+| Prism (CUDA) | `phi-4-mini` (ONNX) | ~108 tok/s warm, ~40 on the first call after a model switch |
+| Prism (CUDA) | `qwen2.5-coder-7b` (ONNX) | 6–7 tok/s |
+| Ollama | `qwen2.5-coder:7b` | 70–80 tok/s |
+| Ollama | `phi4-mini` | 77–97 tok/s |
+| Foundry Local (CPU on WSL2) | `phi-3.5-mini` | ~6.6 tok/s |
+
+What follows from it:
+- Prism's GPU path is real for `phi-4-mini` (GPU utilisation rose while it generated), but its ONNX `qwen2.5-coder` build reports `exported_for: CPU` and runs about ten times slower than the same model on Ollama.
+- Prism keeps one model resident. Alternating between models reloads them on each call, so measure with the same model twice in a row.
+- `phi-4-mini` on Prism cut generated test suites off at 4096 tokens where Ollama's `qwen2.5-coder:7b` finished them.
+
+That is why `local_coder` ships two [routing exceptions](ROUTING.md): `test` prefers Ollama, and an explicitly requested `*coder*` model avoids Prism. Both are ordinary rules you can override.
 
 ---
 
