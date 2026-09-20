@@ -14,3 +14,6 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["E402"]
+"local_coder_mcp_server.py" = ["E402"]
+"ask_coder.py" = ["E402"]
+".agents/skills/*/scripts/*" = ["E402"]

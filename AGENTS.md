@@ -7,9 +7,10 @@ This repository (**local-coders**) provides agent skills and stdio MCP servers t
 ## 🚀 Core Guideline: Utilizing Local Inference Skills
 
 All agents and subagents working in this repository are encouraged to leverage the dedicated local coding skills to offload implementation tasks with zero cloud token cost:
-1. **`ollama-coder`**: Ollama backend (`qwen2.5-coder:7b`, `llama3.1:8b`).
-2. **`foundry-coder`**: Microsoft Foundry Local & Prism backend (`phi-3.5-mini`, `qwen3-0.6b`, `phi-4-mini`).
-3. **`prism`**: Unified multi-engine connector (`prism-local`) providing direct CUDA GPU acceleration for ONNX models on Linux/WSL2.
+1. **`local-coder`**: Unified cross-engine router (Prism CUDA + Ollama + Foundry Local with auto-failover & telemetry).
+2. **`ollama-coder`**: Ollama backend (`qwen2.5-coder:7b`, `llama3.1:8b`).
+3. **`foundry-coder`**: Microsoft Foundry Local & Prism backend (`phi-3.5-mini`, `qwen3-0.6b`, `phi-4-mini`).
+4. **`prism`**: Unified multi-engine connector (`prism-local`) providing direct CUDA GPU acceleration for ONNX models on Linux/WSL2.
 
 ### When to use local coder skills:
 1. **Code & boilerplate generation (`code`)**: implementing functions, algorithms, classes, modules, and utilities.
@@ -21,6 +22,17 @@ All agents and subagents working in this repository are encouraged to leverage t
 ---
 
 ## 🛠 Invoking the Skills
+
+### 0. Unified Coder (`local-coder` - Recommended)
+```bash
+# Code generation with multi-engine routing and AST self-healing:
+python3 ask_coder.py code \
+  --task "Implement a thread-safe sliding window rate limiter" \
+  --output src/rate_limiter.py
+
+# Diagnostics & connected engines check:
+python3 ask_coder.py status
+```
 
 ### 1. Ollama Coder (`ollama-coder`)
 ```bash
