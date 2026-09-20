@@ -15,22 +15,11 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from local_coder.client import DEFAULT_MAX_TOKENS, UnifiedLocalCoderClient
+from local_coder.mcp import StdioMCPServer, ToolNotFound
 from local_coder.status import format_status
 from local_coder.telemetry import format_result_banner
 
 client = UnifiedLocalCoderClient()  # default engine: $LOCAL_CODER_ENGINE, else auto
-
-
-def handle_initialize(request_id: int | str) -> dict:
-    return {
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "result": {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {"tools": {}},
-            "serverInfo": {"name": "local-coder-unified-mcp", "version": "1.0.0"},
-        },
-    }
 
 
 def handle_list_tools() -> list[dict]:
@@ -166,119 +155,74 @@ def handle_list_tools() -> list[dict]:
     ]
 
 
-def _result(request_id: int | str | None, text: str) -> dict:
-    return {"jsonrpc": "2.0", "id": request_id, "result": {"content": [{"type": "text", "text": text}]}}
+def _call_tool(tool_name: str, arguments: dict) -> str:
+    engine = arguments.get("engine")
+    max_tokens = int(arguments.get("max_tokens", DEFAULT_MAX_TOKENS))
+
+    if tool_name == "local_code":
+        context_code = arguments.get("context_code")
+        code, res = client.generate_code(
+            task=arguments.get("task", ""),
+            context_files={"context": context_code} if context_code else None,
+            engine=engine,
+            profile=arguments.get("profile", "coding"),
+            model=arguments.get("model"),
+            self_heal=True,
+            max_tokens=max_tokens,
+        )
+        return f"{code}\n\n{format_result_banner(res, max_tokens)}"
+
+    if tool_name == "local_test":
+        code, res = client.generate_tests(
+            source_code=arguments.get("code", ""),
+            file_path=arguments.get("file_path", "module.py"),
+            framework=arguments.get("framework", "pytest"),
+            engine=engine,
+            self_heal=True,
+            max_tokens=max_tokens,
+        )
+        return f"{code}\n\n{format_result_banner(res, max_tokens)}"
+
+    if tool_name == "local_code_review":
+        res = client.review_code(
+            source_code=arguments.get("code", ""),
+            file_path=arguments.get("file_path", "module.py"),
+            focus=arguments.get("focus"),
+            engine=engine,
+            max_tokens=max_tokens,
+        )
+        return f"{res.content}\n\n{format_result_banner(res, max_tokens)}"
+
+    if tool_name == "local_refactor":
+        code, res = client.refactor_code(
+            source_code=arguments.get("code", ""),
+            file_path=arguments.get("file_path", "module.py"),
+            type_hints=arguments.get("type_hints", True),
+            docstrings=arguments.get("docstrings", True),
+            engine=engine,
+            self_heal=True,
+            max_tokens=max_tokens,
+        )
+        return f"{code}\n\n{format_result_banner(res, max_tokens)}"
+
+    if tool_name == "local_status":
+        return format_status(client.router, max_models=5)
+
+    if tool_name == "list_local_models":
+        all_models = {eng.name: eng.installed_models for eng in client.router.list_all_engines() if eng.is_online}
+        return json.dumps(all_models, indent=2)
+
+    raise ToolNotFound(tool_name)
 
 
-def handle_call_tool(request_id: int | str | None, tool_name: str, arguments: dict) -> dict:
-    try:
-        engine = arguments.get("engine")
-        max_tokens = int(arguments.get("max_tokens", DEFAULT_MAX_TOKENS))
-
-        if tool_name == "local_code":
-            context_code = arguments.get("context_code")
-            code, res = client.generate_code(
-                task=arguments.get("task", ""),
-                context_files={"context": context_code} if context_code else None,
-                engine=engine,
-                profile=arguments.get("profile", "coding"),
-                model=arguments.get("model"),
-                self_heal=True,
-                max_tokens=max_tokens,
-            )
-            return _result(request_id, f"{code}\n\n{format_result_banner(res, max_tokens)}")
-
-        if tool_name == "local_test":
-            code, res = client.generate_tests(
-                source_code=arguments.get("code", ""),
-                file_path=arguments.get("file_path", "module.py"),
-                framework=arguments.get("framework", "pytest"),
-                engine=engine,
-                self_heal=True,
-                max_tokens=max_tokens,
-            )
-            return _result(request_id, f"{code}\n\n{format_result_banner(res, max_tokens)}")
-
-        if tool_name == "local_code_review":
-            res = client.review_code(
-                source_code=arguments.get("code", ""),
-                file_path=arguments.get("file_path", "module.py"),
-                focus=arguments.get("focus"),
-                engine=engine,
-                max_tokens=max_tokens,
-            )
-            return _result(request_id, f"{res.content}\n\n{format_result_banner(res, max_tokens)}")
-
-        if tool_name == "local_refactor":
-            code, res = client.refactor_code(
-                source_code=arguments.get("code", ""),
-                file_path=arguments.get("file_path", "module.py"),
-                type_hints=arguments.get("type_hints", True),
-                docstrings=arguments.get("docstrings", True),
-                engine=engine,
-                self_heal=True,
-                max_tokens=max_tokens,
-            )
-            return _result(request_id, f"{code}\n\n{format_result_banner(res, max_tokens)}")
-
-        if tool_name == "local_status":
-            return _result(request_id, format_status(client.router, max_models=5))
-
-        if tool_name == "list_local_models":
-            all_models = {eng.name: eng.installed_models for eng in client.router.list_all_engines() if eng.is_online}
-            return _result(request_id, json.dumps(all_models, indent=2))
-
-        return {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "error": {"code": -32601, "message": f"Tool '{tool_name}' not found"},
-        }
-
-    except Exception as e:
-        return {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "error": {"code": -32603, "message": f"Execution error in {tool_name}: {e!s}"},
-        }
-
-
-def handle_request(req: dict) -> dict | None:
-    """Dispatch one JSON-RPC message. Returns None for notifications, which must not be answered."""
-    method = req.get("method")
-    if "id" not in req:
-        return None
-    req_id = req["id"]
-
-    if method == "initialize":
-        return handle_initialize(req_id)
-    if method == "ping":
-        return {"jsonrpc": "2.0", "id": req_id, "result": {}}
-    if method == "tools/list":
-        return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": handle_list_tools()}}
-    if method == "tools/call":
-        params = req.get("params") or {}
-        return handle_call_tool(req_id, params.get("name", ""), params.get("arguments") or {})
-    return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"Method '{method}' not found"}}
+server = StdioMCPServer("local-coder-unified-mcp", "1.0.0", handle_list_tools, _call_tool)
+handle_initialize = server.initialize
+handle_call_tool = server.handle_call
+handle_request = server.handle_request
 
 
 def main():
-    sys.stderr.write("Local Coder Unified MCP Server starting...\n")
-    sys.stderr.flush()
-
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            req = json.loads(line)
-        except json.JSONDecodeError as e:
-            sys.stderr.write(f"JSON error: {e}\n")
-            res = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": f"Parse error: {e}"}}
-        else:
-            res = handle_request(req) if isinstance(req, dict) else None
-        if res is not None:
-            sys.stdout.write(json.dumps(res) + "\n")
-            sys.stdout.flush()
+    server.serve()
 
 
 if __name__ == "__main__":

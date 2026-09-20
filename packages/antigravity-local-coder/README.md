@@ -57,7 +57,7 @@ chmod +x install.sh
 
 The installer:
 1. Verifies local Ollama service availability (`http://localhost:11434`).
-2. Deploys the skill to `~/.gemini/config/skills/local-coder/`.
+2. Deploys the skill (scripts plus the bundled `local_coder/` package they run on) to `~/.gemini/config/skills/local-coder/`.
 3. Registers the `ollama-local` MCP server into `~/.gemini/config/mcp_config.json`.
 4. Adds `ask_local.py` symlink to `~/.local/bin/` for direct terminal execution.
 

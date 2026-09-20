@@ -190,6 +190,6 @@ Ensure lint is clean and every test passes before finalizing (install tooling on
 
 ## 📦 Global Installation & Standalone Distribution
 
-- **Ollama Coder**: Run `./install_global_skill.sh` to install `ollama-coder` into `~/.gemini/config/skills/ollama-coder` and register `ollama-local` globally.
-- **Foundry Coder**: Run `./install_foundry_skill.sh` to install `foundry-coder` into `~/.gemini/config/skills/foundry-coder` and register `foundry-local` globally.
+- **All harnesses**: Run `python3 install.py` (see `--list`, `--dry-run`, `--uninstall`). It stages one shared copy in `~/.local/share/local-coders/` and registers the skills and MCP servers with every detected harness (Claude Code, Antigravity, opencode, Gemini CLI, Cursor, Codex; anything else via `--mcp-json`). Pick skills with `--components local-coder,ollama-coder,foundry-coder,prism` (or `all`).
+- **Legacy wrappers**: `./install_unified.sh`, `./install_global_skill.sh`, `./install_foundry_skill.sh` and `./install_prism.sh` just call `install.py` with the matching component.
 - **Standalone Package**: Located in [`packages/antigravity-local-coder/`](packages/antigravity-local-coder/) for independent publishing.

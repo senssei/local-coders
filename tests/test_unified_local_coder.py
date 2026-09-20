@@ -90,6 +90,41 @@ class TestUnifiedRouter(unittest.TestCase):
             target = self.router.resolve_target_engine(EngineType.AUTO)
             self.assertEqual(target.engine_type, EngineType.OLLAMA)
 
+    def test_resolve_ordered_engine_preference(self):
+        prism = EngineInfo("Prism", EngineType.PRISM, "http://127.0.0.1:5272/v1", False)
+        foundry = EngineInfo("Foundry", EngineType.FOUNDRY, "http://127.0.0.1:5272/v1", True)
+        with (
+            patch.object(self.router, "discover_prism", return_value=prism),
+            patch.object(self.router, "discover_foundry", return_value=foundry),
+        ):
+            target = self.router.resolve_target_engine((EngineType.PRISM, EngineType.FOUNDRY))
+        self.assertEqual(target.engine_type, EngineType.FOUNDRY)
+
+    def test_resolve_ordered_preference_all_offline(self):
+        down = EngineInfo("X", EngineType.PRISM, "http://127.0.0.1:5272/v1", False)
+        with (
+            patch.object(self.router, "discover_prism", return_value=down),
+            patch.object(self.router, "discover_foundry", return_value=down),
+            self.assertRaises(ConnectionError),
+        ):
+            self.router.resolve_target_engine((EngineType.PRISM, EngineType.FOUNDRY))
+
+    def test_foundry_autostart_only_when_enabled(self):
+        offline = EngineInfo("F", EngineType.FOUNDRY, "http://127.0.0.1:5272/v1", False)
+        online = EngineInfo("F", EngineType.FOUNDRY, "http://127.0.0.1:5272/v1", True)
+        with (
+            patch.object(self.router, "discover_foundry", side_effect=[offline, online]),
+            patch.object(self.router, "start_foundry_daemon", return_value=True) as start,
+        ):
+            with self.assertRaises(ConnectionError):
+                self.router.discover_foundry.side_effect = [offline]
+                self.router.resolve_target_engine(EngineType.FOUNDRY)
+            start.assert_not_called()
+            self.router.autostart_foundry = True
+            self.router.discover_foundry.side_effect = [offline, online]
+            self.assertTrue(self.router.resolve_target_engine(EngineType.FOUNDRY).is_online)
+            start.assert_called_once()
+
     def test_normalize_ollama_host_variants(self):
         cases = {
             None: ("http://localhost:11434", "http://localhost:11434/v1"),
@@ -234,24 +269,68 @@ class TestUnifiedClient(unittest.TestCase):
             UnifiedLocalCoderClient()
 
     @patch("local_coder.client.requests.post")
-    def test_complete_flags_truncation_and_forwards_max_tokens(self, mock_post):
+    def test_ollama_uses_native_chat_with_num_ctx_and_flags_truncation(self, mock_post):
         mock_post.return_value = MagicMock(
             status_code=200,
-            json=lambda: {"choices": [{"message": {"content": "def f("}, "finish_reason": "length"}]},
+            json=lambda: {
+                "message": {"content": "def f("},
+                "done_reason": "length",
+                "prompt_eval_count": 11,
+                "eval_count": 123,
+                "eval_duration": 2_000_000_000,
+            },
         )
         info = EngineInfo("Ollama", EngineType.OLLAMA, "http://localhost:11434/v1", True, installed_models=["m"])
         with patch.object(self.client.router, "resolve_target_engine", return_value=info):
             res = self.client.complete([{"role": "user", "content": "x"}], max_tokens=123)
+        self.assertEqual(mock_post.call_args.args[0], "http://localhost:11434/api/chat")
+        options = mock_post.call_args.kwargs["json"]["options"]
+        self.assertEqual(options["num_predict"], 123)
+        self.assertEqual(options["num_ctx"], self.client.num_ctx)
         self.assertTrue(res.truncated)
-        self.assertEqual(mock_post.call_args.kwargs["json"]["max_tokens"], 123)
+        self.assertEqual((res.prompt_tokens, res.completion_tokens), (11, 123))
+        self.assertEqual(res.tokens_per_sec, 61.5)  # engine-reported decode speed, not wall time
         self.assertIn("truncated", format_result_banner(res, 123))
         self.assertNotIn("truncated", format_result_banner(CompletionResult("", "m", "e"), 123))
+
+    @patch("local_coder.client.requests.post")
+    def test_prism_uses_openai_endpoint_and_reported_decode_speed(self, mock_post):
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "choices": [{"message": {"content": "hi"}, "finish_reason": "length"}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 9},
+                "telemetry": {"decode_tok_per_sec": 108.2},
+            },
+        )
+        info = EngineInfo("Prism", EngineType.PRISM, "http://127.0.0.1:5272/v1", True, installed_models=["m"])
+        with patch.object(self.client.router, "resolve_target_engine", return_value=info):
+            res = self.client.complete([{"role": "user", "content": "x"}], max_tokens=50)
+        self.assertEqual(mock_post.call_args.args[0], "http://127.0.0.1:5272/v1/chat/completions")
+        self.assertEqual(mock_post.call_args.kwargs["json"]["max_tokens"], 50)
+        self.assertTrue(res.truncated)
+        self.assertEqual(res.tokens_per_sec, 108.2)
+
+    def test_model_alias_resolution(self):
+        info = EngineInfo(
+            "Foundry",
+            EngineType.FOUNDRY,
+            "http://127.0.0.1:5272/v1",
+            True,
+            installed_models=["Phi-3.5-mini-instruct-generic-cpu:2"],
+            model_aliases={"phi-3.5-mini-instruct-generic-cpu:2": "phi-3.5-mini", "phi-3.5-mini": "phi-3.5-mini"},
+        )
+        match = UnifiedLocalCoderClient.match_installed_model
+        self.assertEqual(match(info, "Phi-3.5-mini-instruct-generic-cpu:2"), "phi-3.5-mini")
+        self.assertEqual(match(info, "phi-3.5-mini-instruct-generic-cpu:2"), "phi-3.5-mini")
+        self.assertEqual(match(info, "PHI-3.5-MINI"), "phi-3.5-mini")
+        self.assertIsNone(match(info, "nonexistent-model"))
 
     @patch("local_coder.client.requests.post")
     def test_auto_failover_goes_to_different_endpoint(self, mock_post):
         import requests
 
-        ok = MagicMock(status_code=200, json=lambda: {"choices": [{"message": {"content": "ok"}}]})
+        ok = MagicMock(status_code=200, json=lambda: {"message": {"content": "ok"}})
         mock_post.side_effect = [requests.exceptions.ConnectionError("down"), ok]
         prism = EngineInfo("Prism", EngineType.PRISM, "http://127.0.0.1:5272/v1", True)
         ollama = EngineInfo("Ollama", EngineType.OLLAMA, "http://localhost:11434/v1", True)
@@ -261,7 +340,7 @@ class TestUnifiedClient(unittest.TestCase):
         ):
             res = self.client.complete([{"role": "user", "content": "x"}])
         self.assertEqual(res.engine, "Ollama")
-        self.assertEqual(mock_post.call_args_list[1].args[0], "http://localhost:11434/v1/chat/completions")
+        self.assertEqual(mock_post.call_args_list[1].args[0], "http://localhost:11434/api/chat")
 
 
 class TestUnifiedMCPServer(unittest.TestCase):
