@@ -21,7 +21,7 @@ By delegating deterministic coding tasks to local accelerators (Apple Silicon Me
 
 ## 🛠 Step 1: One-Click Global Installation
 
-BenchRig includes automated installation scripts that install skills into `~/.gemini/config/skills/` and register MCP servers in `~/.gemini/config/mcp_config.json`:
+This repository includes automated installation scripts that install skills into `~/.gemini/config/skills/` and register MCP servers in `~/.gemini/config/mcp_config.json`:
 
 ```bash
 # 1. Install Ollama Coder skill & register 'ollama-local' MCP:
@@ -39,7 +39,7 @@ If configuring Cursor or Claude Desktop, add the following to your `mcp_config.j
   "mcpServers": {
     "ollama-local": {
       "command": "python3",
-      "args": ["/path/to/ollama-benchrig/ollama_mcp_server.py"],
+      "args": ["/path/to/local-coders/ollama_mcp_server.py"],
       "env": {
         "OLLAMA_HOST": "http://localhost:11434",
         "DEFAULT_MODEL": "qwen2.5-coder:7b",
@@ -48,7 +48,7 @@ If configuring Cursor or Claude Desktop, add the following to your `mcp_config.j
     },
     "foundry-local": {
       "command": "python3",
-      "args": ["/path/to/ollama-benchrig/foundry_mcp_server.py"],
+      "args": ["/path/to/local-coders/foundry_mcp_server.py"],
       "env": {
         "DEFAULT_MODEL": "phi-3.5-mini"
       }
@@ -131,10 +131,10 @@ When an agent generates Python code using `ask_local.py` or `ask_foundry.py`:
 
 ## 📈 Monitoring Token & Cost Savings
 
-BenchRig tracks total tokens offloaded to local models. Run the benchmark to view aggregated savings:
+[benchrig](https://github.com/senssei/benchrig) tracks total tokens offloaded to local models. Install it (`pip install benchrig`) and run its comparison mode to view aggregated savings:
 
 ```bash
-python3 benchmark.py --compare results/latest.json
+benchrig --compare results/latest.json
 ```
 
 ```text

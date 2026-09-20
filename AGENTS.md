@@ -1,6 +1,6 @@
 # Project Guidelines and Agent Instructions (`AGENTS.md`)
 
-This repository (**Ollama BenchRig** / `ollama-benchrig`) profiles, benchmarks, and augments AI coding agents using local LLMs running via **Ollama** (`llama.cpp`) and **Microsoft Foundry Local** (`ONNX Runtime GenAI`) on **macOS Apple Silicon (M1/M2/M3/M4 Metal & Unified Memory)** as well as **Linux / WSL2 (NVIDIA GeForce RTX CUDA)**.
+This repository (**local-coders**) provides agent skills and stdio MCP servers that offload coding work to local LLMs running via **Ollama** (`llama.cpp`) and **Microsoft Foundry Local** (`ONNX Runtime GenAI`) on **macOS Apple Silicon (M1/M2/M3/M4 Metal & Unified Memory)** as well as **Linux / WSL2 (NVIDIA GeForce RTX CUDA)**.
 
 ---
 

@@ -79,11 +79,11 @@ Add to your `claude_desktop_config.json` (`~/Library/Application Support/Claude/
   "mcpServers": {
     "ollama-local": {
       "command": "python3",
-      "args": ["/path/to/ollama-benchrig/ollama_mcp_server.py"]
+      "args": ["/path/to/local-coders/ollama_mcp_server.py"]
     },
     "foundry-local": {
       "command": "python3",
-      "args": ["/path/to/ollama-benchrig/foundry_mcp_server.py"]
+      "args": ["/path/to/local-coders/foundry_mcp_server.py"]
     }
   }
 }
@@ -96,11 +96,11 @@ Add to your Cursor MCP settings (`~/.cursor/mcp.json`):
   "mcpServers": {
     "ollama-local": {
       "command": "python3",
-      "args": ["/path/to/ollama-benchrig/ollama_mcp_server.py"]
+      "args": ["/path/to/local-coders/ollama_mcp_server.py"]
     },
     "foundry-local": {
       "command": "python3",
-      "args": ["/path/to/ollama-benchrig/foundry_mcp_server.py"]
+      "args": ["/path/to/local-coders/foundry_mcp_server.py"]
     }
   }
 }
