@@ -29,6 +29,9 @@ This repository includes automated installation scripts that install skills into
 
 # 2. Install Foundry Coder skill & register 'foundry-local' MCP:
 ./install_foundry_skill.sh
+
+# 3. Install Prism CUDA runner & register 'prism' MCP:
+./install_prism.sh
 ```
 
 ### Manual Configuration for Other Agents (Cursor / Claude Desktop / Windsurf)
@@ -51,6 +54,13 @@ If configuring Cursor or Claude Desktop, add the following to your `mcp_config.j
       "args": ["/path/to/local-coders/foundry_mcp_server.py"],
       "env": {
         "DEFAULT_MODEL": "phi-3.5-mini"
+      }
+    },
+    "prism": {
+      "command": "prism",
+      "args": ["mcp"],
+      "env": {
+        "PRISM_BASE_URL": "http://127.0.0.1:5272/v1"
       }
     }
   }

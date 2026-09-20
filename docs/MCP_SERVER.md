@@ -35,18 +35,30 @@ The repository provides two lightweight, zero-dependency stdio MCP servers:
 | **`list_foundry_models`** | *None* | Lists all models currently installed and available in Microsoft Foundry Local. |
 | **`get_foundry_status`** | *None* | Queries daemon PID, URL, active listening port, and health check status. |
 
+### C. Prism Server Tools (`prism`)
+| Tool | Parameters | Description |
+| :--- | :--- | :--- |
+| **`prism_ask_coder`** | `task` *(str)*, `context_code` *(opt str)*, `model` *(opt str)* | Generates code using ONNX Runtime GenAI models with native CUDA GPU acceleration or proxied Ollama models. |
+| **`prism_code_review`** | `code` *(str)*, `focus` *(opt str)*, `model` *(opt str)* | Audits code for vulnerabilities, race conditions, and bottlenecks using local models. |
+| **`prism_list_models`** | *None* | Lists all local ONNX and Ollama models discovered by Prism. |
+| **`prism_get_status`** | *None* | Reports hardware telemetry, NVML VRAM usage, and Prism server health. |
+| **`prism_benchmark`** | `model` *(str)* | Runs an automated micro-benchmark measuring Time to First Token (TTFT) and decode tok/s. |
+
 ---
 
 ## 3. Client Configuration
 
 ### A. Global 1-Click Installation (Antigravity CLI / IDE)
-Install both skills and register both MCP servers globally in `~/.gemini/config/mcp_config.json`:
+Install skills and register MCP servers globally in `~/.gemini/config/mcp_config.json`:
 ```bash
 # Install Ollama local coder skill & MCP:
 ./install_global_skill.sh
 
 # Install Foundry local coder skill & MCP:
 ./install_foundry_skill.sh
+
+# Install Prism CUDA runner & MCP:
+./install_prism.sh
 ```
 
 Resulting `~/.gemini/config/mcp_config.json`:
@@ -67,6 +79,13 @@ Resulting `~/.gemini/config/mcp_config.json`:
       "env": {
         "FOUNDRY_DEFAULT_MODEL": "phi-3.5-mini"
       }
+    },
+    "prism": {
+      "command": "prism",
+      "args": ["mcp"],
+      "env": {
+        "PRISM_BASE_URL": "http://localhost:5272/v1"
+      }
     }
   }
 }
@@ -84,6 +103,13 @@ Add to your `claude_desktop_config.json` (`~/Library/Application Support/Claude/
     "foundry-local": {
       "command": "python3",
       "args": ["/path/to/local-coders/foundry_mcp_server.py"]
+    },
+    "prism": {
+      "command": "prism",
+      "args": ["mcp"],
+      "env": {
+        "PRISM_BASE_URL": "http://localhost:5272/v1"
+      }
     }
   }
 }
@@ -101,6 +127,13 @@ Add to your Cursor MCP settings (`~/.cursor/mcp.json`):
     "foundry-local": {
       "command": "python3",
       "args": ["/path/to/local-coders/foundry_mcp_server.py"]
+    },
+    "prism": {
+      "command": "prism",
+      "args": ["mcp"],
+      "env": {
+        "PRISM_BASE_URL": "http://localhost:5272/v1"
+      }
     }
   }
 }

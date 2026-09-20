@@ -94,6 +94,18 @@ Unlike basic wrappers, `ask_foundry.py` and `foundry_mcp_server.py` manage the F
 3. **Daemon Auto-Start**: If the Foundry daemon is stopped, the tool initiates `foundry server start` automatically.
 4. **AST Self-Healing Loop**: If generated code encounters syntax errors, the trace is submitted back to the model with `temperature: 0.0` to heal itself before saving.
 
+## 🚀 Linux & WSL2 CUDA Acceleration via Prism (`prism-local`)
+
+Under Linux / WSL2, Microsoft Foundry Local CLI (`0.10.3`) relies on Windows WMI for GPU discovery, causing it to fail GPU detection and silently fall back to CPU execution (`~13 tok/s`).
+
+To unlock full NVIDIA CUDA GPU acceleration on Linux / WSL2:
+1. Launch the **`prism-local`** server on the standard port `5272`:
+   ```bash
+   prism serve --device cuda --port 5272
+   ```
+2. `ask_foundry.py` and `foundry_mcp_server.py` automatically detect the active server on `http://127.0.0.1:5272/v1`.
+3. Calls to `phi-3.5-mini`, `phi-4-mini`, and `qwen2.5-coder-7b` will execute with native **CUDA Execution Provider** acceleration directly on your NVIDIA GPU without any code changes.
+
 ---
 
 ## 🌐 Global Machine Installation

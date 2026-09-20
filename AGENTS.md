@@ -1,6 +1,6 @@
 # Project Guidelines and Agent Instructions (`AGENTS.md`)
 
-This repository (**local-coders**) provides agent skills and stdio MCP servers that offload coding work to local LLMs running via **Ollama** (`llama.cpp`) and **Microsoft Foundry Local** (`ONNX Runtime GenAI`) on **macOS Apple Silicon (M1/M2/M3/M4 Metal & Unified Memory)** as well as **Linux / WSL2 (NVIDIA GeForce RTX CUDA)**.
+This repository (**local-coders**) provides agent skills and stdio MCP servers that offload coding work to local LLMs running via **Ollama** (`llama.cpp`), **Microsoft Foundry Local** (`ONNX Runtime GenAI`), and **Prism** (`prism-local` CUDA accelerator) on **macOS Apple Silicon (M1/M2/M3/M4 Metal & Unified Memory)** as well as **Linux / WSL2 (NVIDIA GeForce RTX CUDA)**.
 
 ---
 
@@ -8,7 +8,8 @@ This repository (**local-coders**) provides agent skills and stdio MCP servers t
 
 All agents and subagents working in this repository are encouraged to leverage the dedicated local coding skills to offload implementation tasks with zero cloud token cost:
 1. **`ollama-coder`**: Ollama backend (`qwen2.5-coder:7b`, `llama3.1:8b`).
-2. **`foundry-coder`**: Microsoft Foundry Local backend (`phi-3.5-mini`, `qwen3-0.6b`).
+2. **`foundry-coder`**: Microsoft Foundry Local & Prism backend (`phi-3.5-mini`, `qwen3-0.6b`, `phi-4-mini`).
+3. **`prism`**: Unified multi-engine connector (`prism-local`) providing direct CUDA GPU acceleration for ONNX models on Linux/WSL2.
 
 ### When to use local coder skills:
 1. **Code & boilerplate generation (`code`)**: implementing functions, algorithms, classes, modules, and utilities.
@@ -94,6 +95,24 @@ cat ~/.foundry/daemon.json
 # Look for "web_urls": ["http://127.0.0.1:<port>"]
 # Ensure your request targets http://127.0.0.1:<port>/v1
 ```
+
+#### C. Prism Daemon (`prism-local` - Recommended for Linux / WSL2 CUDA GPU)
+On Linux / WSL2, Microsoft Foundry Local CLI (`0.10.3`) uses WMI instead of NVML, failing GPU detection and silently falling back to the CPU Execution Provider (`~13 tok/s`). **`prism-local`** resolves this by linking directly with NVML (`libnvidia-ml.so.1`) and running ONNX Runtime GenAI models with full CUDA GPU acceleration at `http://127.0.0.1:5272/v1`.
+
+```bash
+# 1. Environment & CUDA provider verification:
+prism doctor
+
+# 2. Check installed ONNX and Ollama models:
+prism list
+
+# 3. Launch CUDA-accelerated server on fixed port 5272:
+prism serve --device cuda --port 5272
+
+# 4. Quick smoke test:
+prism run --device cuda phi-4-mini "Write a Python function"
+```
+*Note*: `ask_foundry.py` and `foundry_mcp_server.py` will automatically target `http://127.0.0.1:5272/v1` when Prism is running, giving `foundry-coder` immediate CUDA GPU acceleration.
 
 ### 2. Inspecting Log Files
 When troubleshooting Foundry Local or ONNX Runtime errors:

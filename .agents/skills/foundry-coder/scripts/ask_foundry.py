@@ -30,9 +30,17 @@ DEFAULT_FOUNDRY_PROFILES = {
 
 def discover_foundry_url() -> str:
     """Auto-discover Microsoft Foundry Local endpoint URL from ~/.foundry/daemon.json or env."""
-    env_url = os.environ.get("FOUNDRY_BASE_URL")
+    env_url = os.environ.get("FOUNDRY_BASE_URL") or os.environ.get("PRISM_BASE_URL")
     if env_url:
         return env_url.rstrip("/")
+
+    # Probe port 5272 first: if Prism or Foundry is live on 5272, connect immediately
+    try:
+        r = requests.get("http://127.0.0.1:5272/v1/models", timeout=0.8)
+        if r.status_code == 200:
+            return "http://127.0.0.1:5272/v1"
+    except Exception:
+        pass
 
     if os.path.exists(DAEMON_JSON_PATH):
         try:
@@ -44,11 +52,11 @@ def discover_foundry_url() -> str:
                     return f"{base}/v1" if not base.endswith("/v1") else base
                 port = data.get("port")
                 if port:
-                    return f"http://localhost:{port}/v1"
+                    return f"http://127.0.0.1:{port}/v1"
         except Exception:
             pass
 
-    return "http://localhost:5272/v1"
+    return "http://127.0.0.1:5272/v1"
 
 
 def get_available_models(base_url: str) -> list[str]:
