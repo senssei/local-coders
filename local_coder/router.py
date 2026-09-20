@@ -6,6 +6,7 @@ import platform
 import shutil
 import subprocess
 import time
+from urllib.parse import urlsplit
 
 import requests
 
@@ -33,6 +34,29 @@ MODEL_PROFILES: dict[str, dict[str, str]] = {
         "foundry": "phi-4-mini",
     },
 }
+
+
+def normalize_ollama_host(raw: str | None) -> tuple[str, str]:
+    """Turn an ``OLLAMA_HOST`` value into ``(native_host, openai_v1_url)``.
+
+    Ollama accepts bare ``host``, ``host:port``, ``:port`` and ``0.0.0.0`` values without a scheme, and
+    clients are expected to fill in ``http://`` and port 11434. A trailing ``/v1`` is tolerated.
+    """
+    value = (raw or "").strip() or "http://localhost:11434"
+    if "://" not in value:
+        value = f"http://{value}"
+    parts = urlsplit(value)
+    hostname = parts.hostname or "localhost"
+    if hostname in ("0.0.0.0", "::"):  # bind-all address is not a valid connect target everywhere
+        hostname = "127.0.0.1"
+    if ":" in hostname:  # IPv6 literal
+        hostname = f"[{hostname}]"
+    host = f"{parts.scheme}://{hostname}:{parts.port or 11434}"
+    path = parts.path.rstrip("/")
+    if path.endswith("/v1"):
+        path = path[: -len("/v1")]
+    host += path
+    return host, f"{host}/v1"
 
 
 def detect_system_hardware() -> str:
@@ -95,8 +119,7 @@ class EngineRouter:
 
     def discover_ollama(self) -> EngineInfo:
         """Inspect Ollama server status (using OpenAI /v1 endpoint)."""
-        host = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
-        base_url = f"{host}/v1" if not host.endswith("/v1") else host
+        host, base_url = normalize_ollama_host(os.environ.get("OLLAMA_HOST"))
         models = []
         is_online = False
         latency = 0.0
@@ -163,7 +186,7 @@ class EngineRouter:
             base_url=base_url,
             is_online=is_online,
             version="ONNX Runtime GenAI" if is_online else "offline",
-            hardware="CPU (WSL2 fallback)" if is_online and "WSL2" in self.hardware else self.hardware,
+            hardware=self.hardware,
             installed_models=models,
             latency_ms=round(latency, 2),
         )
@@ -207,17 +230,37 @@ class EngineRouter:
 
         # AUTO mode:
         engines = self.list_all_engines()
-        online_map = {e.engine_type: e for e in engines if e.is_online}
-
-        if platform.system().lower() == "darwin":
-            priority = [EngineType.OLLAMA, EngineType.FOUNDRY, EngineType.PRISM]
-        else:
-            # Linux / WSL2 priority
-            priority = [EngineType.PRISM, EngineType.OLLAMA, EngineType.FOUNDRY]
-
-        for p in priority:
-            if p in online_map:
-                return online_map[p]
+        ranked = self.rank_online(engines)
 
         # If none online, return the first one with informative status
-        return engines[0]
+        return ranked[0] if ranked else engines[0]
+
+    @staticmethod
+    def priority() -> list[EngineType]:
+        """Engine preference order for AUTO mode on the current platform."""
+        if platform.system().lower() == "darwin":
+            return [EngineType.OLLAMA, EngineType.FOUNDRY, EngineType.PRISM]
+        # Linux / WSL2 priority
+        return [EngineType.PRISM, EngineType.OLLAMA, EngineType.FOUNDRY]
+
+    def rank_online(self, engines: list[EngineInfo]) -> list[EngineInfo]:
+        """Online engines in priority order, one per distinct endpoint.
+
+        Prism and Foundry Local share ``127.0.0.1:5272`` by default, so both can report the same server as online;
+        only the higher-priority one is kept so failover never lands on the endpoint that just failed.
+        """
+        order = {t: i for i, t in enumerate(self.priority())}
+        ranked: list[EngineInfo] = []
+        seen_urls: set[str] = set()
+        for eng in sorted((e for e in engines if e.is_online), key=lambda e: order.get(e.engine_type, len(order))):
+            url = eng.base_url.rstrip("/")
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            ranked.append(eng)
+        return ranked
+
+    def failover_candidates(self, failed: EngineInfo) -> list[EngineInfo]:
+        """Online engines on a different endpoint than ``failed``, best first."""
+        failed_url = failed.base_url.rstrip("/")
+        return [e for e in self.rank_online(self.list_all_engines()) if e.base_url.rstrip("/") != failed_url]

@@ -36,4 +36,10 @@ class CompletionResult:
     tokens_per_sec: float = 0.0
     saved_tokens: int = 0
     saved_usd: float = 0.0
+    finish_reason: str = ""
     raw_response: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def truncated(self) -> bool:
+        """True when generation stopped because it hit the ``max_tokens`` limit."""
+        return self.finish_reason == "length"

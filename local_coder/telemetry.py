@@ -1,5 +1,7 @@
 """Telemetry and cost savings calculations for local_coder."""
 
+from .types import CompletionResult
+
 # Standard frontier cloud model pricing (USD per 1M tokens)
 # Claude 3.5 Sonnet / GPT-4o baseline
 CLAUDE_35_SONNET_PROMPT_PRICE_PER_M = 3.00
@@ -30,3 +32,20 @@ def format_telemetry_banner(
         f"{completion_tokens} tokens in {duration_s:.2f}s | "
         f"⚡ Saved {saved_tokens} cloud tokens (~${saved_usd:.4f})]"
     )
+
+
+def format_result_banner(res: CompletionResult, max_tokens: int | None = None) -> str:
+    """Telemetry footer for a completion, with a truncation warning when the output hit ``max_tokens``."""
+    banner = format_telemetry_banner(
+        res.engine,
+        res.model,
+        res.tokens_per_sec,
+        res.completion_tokens,
+        res.duration_s,
+        res.saved_tokens,
+        res.saved_usd,
+    )
+    if res.truncated:
+        limit = f" ({max_tokens})" if max_tokens else ""
+        banner += f"\n⚠️ Output truncated at the max_tokens limit{limit}; raise --max-tokens / max_tokens and retry."
+    return banner

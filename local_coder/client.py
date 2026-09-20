@@ -1,9 +1,12 @@
 """Unified OpenAI-compatible /v1 client for local_coder."""
 
 import json
+import os
+import re
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 
 import requests
 
@@ -20,13 +23,28 @@ from .router import MODEL_PROFILES, EngineRouter
 from .telemetry import calculate_savings
 from .types import CompletionResult, EngineInfo, EngineType
 
+DEFAULT_MAX_TOKENS = 4096
+
+_TEST_DEF = re.compile(r"^\s*(?:async\s+def\s+|def\s+)test_|^class\s+Test", re.MULTILINE)
+
+
+def _requires_tests(code: str) -> str | None:
+    """Semantic check for generated test suites: a file without any test is not a fix."""
+    return None if _TEST_DEF.search(code) else "no test functions (def test_*) or Test classes found"
+
 
 class UnifiedLocalCoderClient:
     """Unified client for Prism, Ollama, and Microsoft Foundry Local."""
 
-    def __init__(self, default_engine: EngineType | str = EngineType.AUTO, timeout_sec: int = 120):
+    def __init__(self, default_engine: EngineType | str | None = None, timeout_sec: int = 120):
+        """``default_engine`` falls back to the ``LOCAL_CODER_ENGINE`` environment variable, then to auto."""
         self.router = EngineRouter()
-        self.default_engine = EngineType(default_engine.lower()) if isinstance(default_engine, str) else default_engine
+        chosen = default_engine or os.environ.get("LOCAL_CODER_ENGINE") or EngineType.AUTO
+        try:
+            self.default_engine = EngineType(chosen.lower()) if isinstance(chosen, str) else chosen
+        except ValueError:
+            valid = ", ".join(t.value for t in EngineType)
+            raise ValueError(f"Unknown engine {chosen!r}; expected one of: {valid}") from None
         self.timeout_sec = timeout_sec
 
     def resolve_engine_and_model(
@@ -69,7 +87,7 @@ class UnifiedLocalCoderClient:
         profile: str | None = None,
         model: str | None = None,
         temperature: float = 0.2,
-        max_tokens: int = 2048,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
     ) -> CompletionResult:
         """Send chat completion request to the resolved local engine."""
         engine_info, target_model = self.resolve_engine_and_model(engine, profile, model)
@@ -89,8 +107,7 @@ class UnifiedLocalCoderClient:
         except requests.exceptions.RequestException as e:
             # Attempt failover to backup engine if in AUTO mode
             if (engine or self.default_engine) == EngineType.AUTO:
-                all_engines = [eng for eng in self.router.list_all_engines() if eng.is_online]
-                backup_engines = [eng for eng in all_engines if eng.engine_type != engine_info.engine_type]
+                backup_engines = self.router.failover_candidates(engine_info)
                 if backup_engines:
                     backup = backup_engines[0]
                     sys.stderr.write(
@@ -145,8 +162,44 @@ class UnifiedLocalCoderClient:
             tokens_per_sec=round(tok_per_sec, 1),
             saved_tokens=saved_tokens,
             saved_usd=saved_usd,
+            finish_reason=(choices[0].get("finish_reason") or "") if choices else "",
             raw_response=data,
         )
+
+    def _generate_python(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        engine: EngineType | str | None,
+        profile: str,
+        model: str | None,
+        self_heal: bool,
+        max_retries: int,
+        max_tokens: int,
+        extra_check: Callable[[str], str | None] | None = None,
+    ) -> tuple[str, CompletionResult]:
+        """Complete ``messages``, extract the Python block, and optionally AST-heal it."""
+        res = self.complete(
+            messages, engine=engine, profile=profile, model=model, temperature=0.1, max_tokens=max_tokens
+        )
+        raw_code = extract_code_block(res.content, "python")
+
+        if not self_heal:
+            return raw_code, res
+
+        def heal_fn(invalid_code: str, err: str) -> str:
+            heal_res = self.complete(
+                build_heal_prompt(invalid_code, err),
+                engine=engine,
+                profile=profile,
+                model=model,
+                temperature=0.0,
+                max_tokens=max_tokens,
+            )
+            return extract_code_block(heal_res.content, "python")
+
+        final_code, _ = heal_code_iterative(raw_code, heal_fn, max_retries=max_retries, extra_check=extra_check)
+        return final_code, res
 
     def generate_code(
         self,
@@ -157,22 +210,18 @@ class UnifiedLocalCoderClient:
         profile: str = "coding",
         self_heal: bool = True,
         max_retries: int = 2,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
     ) -> tuple[str, CompletionResult]:
         """Generate Python code with optional automated AST self-healing."""
-        messages = build_code_prompt(task, context_files)
-        res = self.complete(messages, engine=engine, profile=profile, model=model, temperature=0.1)
-        raw_code = extract_code_block(res.content, "python")
-
-        if not self_heal:
-            return raw_code, res
-
-        def heal_fn(invalid_code: str, err: str) -> str:
-            heal_msgs = build_heal_prompt(invalid_code, err)
-            heal_res = self.complete(heal_msgs, engine=engine, profile=profile, model=model, temperature=0.0)
-            return extract_code_block(heal_res.content, "python")
-
-        final_code, _ = heal_code_iterative(raw_code, heal_fn, max_retries=max_retries)
-        return final_code, res
+        return self._generate_python(
+            build_code_prompt(task, context_files),
+            engine=engine,
+            profile=profile,
+            model=model,
+            self_heal=self_heal,
+            max_retries=max_retries,
+            max_tokens=max_tokens,
+        )
 
     def generate_tests(
         self,
@@ -182,22 +231,19 @@ class UnifiedLocalCoderClient:
         engine: EngineType | str | None = None,
         model: str | None = None,
         self_heal: bool = True,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
     ) -> tuple[str, CompletionResult]:
         """Generate automated unit tests."""
-        messages = build_test_prompt(source_code, file_path, framework)
-        res = self.complete(messages, engine=engine, profile="coding", model=model, temperature=0.1)
-        raw_code = extract_code_block(res.content, "python")
-
-        if not self_heal:
-            return raw_code, res
-
-        def heal_fn(invalid_code: str, err: str) -> str:
-            heal_msgs = build_heal_prompt(invalid_code, err)
-            heal_res = self.complete(heal_msgs, engine=engine, profile="coding", model=model, temperature=0.0)
-            return extract_code_block(heal_res.content, "python")
-
-        final_code, _ = heal_code_iterative(raw_code, heal_fn)
-        return final_code, res
+        return self._generate_python(
+            build_test_prompt(source_code, file_path, framework),
+            engine=engine,
+            profile="coding",
+            model=model,
+            self_heal=self_heal,
+            max_retries=2,
+            max_tokens=max_tokens,
+            extra_check=_requires_tests,
+        )
 
     def review_code(
         self,
@@ -206,10 +252,13 @@ class UnifiedLocalCoderClient:
         focus: str | None = None,
         engine: EngineType | str | None = None,
         model: str | None = None,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
     ) -> CompletionResult:
         """Perform security and architectural code review."""
         messages = build_review_prompt(source_code, file_path, focus)
-        return self.complete(messages, engine=engine, profile="reasoning", model=model, temperature=0.2)
+        return self.complete(
+            messages, engine=engine, profile="reasoning", model=model, temperature=0.2, max_tokens=max_tokens
+        )
 
     def refactor_code(
         self,
@@ -220,19 +269,15 @@ class UnifiedLocalCoderClient:
         engine: EngineType | str | None = None,
         model: str | None = None,
         self_heal: bool = True,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
     ) -> tuple[str, CompletionResult]:
         """Refactor code with strict type hints and docstrings."""
-        messages = build_refactor_prompt(source_code, file_path, type_hints, docstrings)
-        res = self.complete(messages, engine=engine, profile="coding", model=model, temperature=0.1)
-        raw_code = extract_code_block(res.content, "python")
-
-        if not self_heal:
-            return raw_code, res
-
-        def heal_fn(invalid_code: str, err: str) -> str:
-            heal_msgs = build_heal_prompt(invalid_code, err)
-            heal_res = self.complete(heal_msgs, engine=engine, profile="coding", model=model, temperature=0.0)
-            return extract_code_block(heal_res.content, "python")
-
-        final_code, _ = heal_code_iterative(raw_code, heal_fn)
-        return final_code, res
+        return self._generate_python(
+            build_refactor_prompt(source_code, file_path, type_hints, docstrings),
+            engine=engine,
+            profile="coding",
+            model=model,
+            self_heal=self_heal,
+            max_retries=2,
+            max_tokens=max_tokens,
+        )

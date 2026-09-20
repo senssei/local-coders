@@ -43,6 +43,10 @@ python3 ask_coder.py code \
   --output src/redis_cache.py
 ```
 
+Long outputs (tests, refactors of big files) are capped at `--max-tokens` (default 4096). If the cap is hit the
+result is flagged with a `⚠️ Output truncated` line; re-run with a larger `--max-tokens`. The default engine can be
+pinned with `LOCAL_CODER_ENGINE=auto|prism|ollama|foundry`.
+
 ### 2. Automated Test Generation
 ```bash
 python3 ask_coder.py test \

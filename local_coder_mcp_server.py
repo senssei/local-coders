@@ -14,10 +14,11 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from local_coder.client import UnifiedLocalCoderClient
-from local_coder.telemetry import format_telemetry_banner
+from local_coder.client import DEFAULT_MAX_TOKENS, UnifiedLocalCoderClient
+from local_coder.status import format_status
+from local_coder.telemetry import format_result_banner
 
-client = UnifiedLocalCoderClient()
+client = UnifiedLocalCoderClient()  # default engine: $LOCAL_CODER_ENGINE, else auto
 
 
 def handle_initialize(request_id: int | str) -> dict:
@@ -51,8 +52,7 @@ def handle_list_tools() -> list[dict]:
                     "engine": {
                         "type": "string",
                         "enum": ["auto", "prism", "ollama", "foundry"],
-                        "default": "auto",
-                        "description": "Inference engine to target (default: auto).",
+                        "description": "Inference engine to target (default: $LOCAL_CODER_ENGINE, else auto).",
                     },
                     "profile": {
                         "type": "string",
@@ -61,6 +61,11 @@ def handle_list_tools() -> list[dict]:
                         "description": "Model profile tier.",
                     },
                     "model": {"type": "string", "description": "Explicit model name or alias override."},
+                    "max_tokens": {
+                        "type": "integer",
+                        "default": DEFAULT_MAX_TOKENS,
+                        "description": "Generation limit; truncated output is flagged in the result.",
+                    },
                 },
                 "required": ["task"],
             },
@@ -86,7 +91,11 @@ def handle_list_tools() -> list[dict]:
                     "engine": {
                         "type": "string",
                         "enum": ["auto", "prism", "ollama", "foundry"],
-                        "default": "auto",
+                    },
+                    "max_tokens": {
+                        "type": "integer",
+                        "default": DEFAULT_MAX_TOKENS,
+                        "description": "Generation limit; truncated output is flagged in the result.",
                     },
                 },
                 "required": ["code"],
@@ -111,7 +120,11 @@ def handle_list_tools() -> list[dict]:
                     "engine": {
                         "type": "string",
                         "enum": ["auto", "prism", "ollama", "foundry"],
-                        "default": "auto",
+                    },
+                    "max_tokens": {
+                        "type": "integer",
+                        "default": DEFAULT_MAX_TOKENS,
+                        "description": "Generation limit; truncated output is flagged in the result.",
                     },
                 },
                 "required": ["code"],
@@ -130,7 +143,11 @@ def handle_list_tools() -> list[dict]:
                     "engine": {
                         "type": "string",
                         "enum": ["auto", "prism", "ollama", "foundry"],
-                        "default": "auto",
+                    },
+                    "max_tokens": {
+                        "type": "integer",
+                        "default": DEFAULT_MAX_TOKENS,
+                        "description": "Generation limit; truncated output is flagged in the result.",
                     },
                 },
                 "required": ["code"],
@@ -149,138 +166,73 @@ def handle_list_tools() -> list[dict]:
     ]
 
 
-def handle_call_tool(request_id: int | str, tool_name: str, arguments: dict) -> dict:
+def _result(request_id: int | str | None, text: str) -> dict:
+    return {"jsonrpc": "2.0", "id": request_id, "result": {"content": [{"type": "text", "text": text}]}}
+
+
+def handle_call_tool(request_id: int | str | None, tool_name: str, arguments: dict) -> dict:
     try:
+        engine = arguments.get("engine")
+        max_tokens = int(arguments.get("max_tokens", DEFAULT_MAX_TOKENS))
+
         if tool_name == "local_code":
-            task = arguments.get("task", "")
             context_code = arguments.get("context_code")
-            engine = arguments.get("engine", "auto")
-            profile = arguments.get("profile", "coding")
-            model = arguments.get("model")
-
-            context_files = {"context": context_code} if context_code else None
             code, res = client.generate_code(
-                task=task,
-                context_files=context_files,
+                task=arguments.get("task", ""),
+                context_files={"context": context_code} if context_code else None,
                 engine=engine,
-                profile=profile,
-                model=model,
+                profile=arguments.get("profile", "coding"),
+                model=arguments.get("model"),
                 self_heal=True,
+                max_tokens=max_tokens,
             )
-            banner = format_telemetry_banner(
-                res.engine,
-                res.model,
-                res.tokens_per_sec,
-                res.completion_tokens,
-                res.duration_s,
-                res.saved_tokens,
-                res.saved_usd,
-            )
-            text_out = f"{code}\n\n{banner}"
-            return {"jsonrpc": "2.0", "id": request_id, "result": {"content": [{"type": "text", "text": text_out}]}}
+            return _result(request_id, f"{code}\n\n{format_result_banner(res, max_tokens)}")
 
-        elif tool_name == "local_test":
-            src = arguments.get("code", "")
-            fp = arguments.get("file_path", "module.py")
-            fw = arguments.get("framework", "pytest")
-            engine = arguments.get("engine", "auto")
-
+        if tool_name == "local_test":
             code, res = client.generate_tests(
-                source_code=src,
-                file_path=fp,
-                framework=fw,
+                source_code=arguments.get("code", ""),
+                file_path=arguments.get("file_path", "module.py"),
+                framework=arguments.get("framework", "pytest"),
                 engine=engine,
                 self_heal=True,
+                max_tokens=max_tokens,
             )
-            banner = format_telemetry_banner(
-                res.engine,
-                res.model,
-                res.tokens_per_sec,
-                res.completion_tokens,
-                res.duration_s,
-                res.saved_tokens,
-                res.saved_usd,
+            return _result(request_id, f"{code}\n\n{format_result_banner(res, max_tokens)}")
+
+        if tool_name == "local_code_review":
+            res = client.review_code(
+                source_code=arguments.get("code", ""),
+                file_path=arguments.get("file_path", "module.py"),
+                focus=arguments.get("focus"),
+                engine=engine,
+                max_tokens=max_tokens,
             )
-            text_out = f"{code}\n\n{banner}"
-            return {"jsonrpc": "2.0", "id": request_id, "result": {"content": [{"type": "text", "text": text_out}]}}
+            return _result(request_id, f"{res.content}\n\n{format_result_banner(res, max_tokens)}")
 
-        elif tool_name == "local_code_review":
-            src = arguments.get("code", "")
-            fp = arguments.get("file_path", "module.py")
-            focus = arguments.get("focus")
-            engine = arguments.get("engine", "auto")
-
-            res = client.review_code(source_code=src, file_path=fp, focus=focus, engine=engine)
-            banner = format_telemetry_banner(
-                res.engine,
-                res.model,
-                res.tokens_per_sec,
-                res.completion_tokens,
-                res.duration_s,
-                res.saved_tokens,
-                res.saved_usd,
-            )
-            text_out = f"{res.content}\n\n{banner}"
-            return {"jsonrpc": "2.0", "id": request_id, "result": {"content": [{"type": "text", "text": text_out}]}}
-
-        elif tool_name == "local_refactor":
-            src = arguments.get("code", "")
-            fp = arguments.get("file_path", "module.py")
-            th = arguments.get("type_hints", True)
-            ds = arguments.get("docstrings", True)
-            engine = arguments.get("engine", "auto")
-
+        if tool_name == "local_refactor":
             code, res = client.refactor_code(
-                source_code=src,
-                file_path=fp,
-                type_hints=th,
-                docstrings=ds,
+                source_code=arguments.get("code", ""),
+                file_path=arguments.get("file_path", "module.py"),
+                type_hints=arguments.get("type_hints", True),
+                docstrings=arguments.get("docstrings", True),
                 engine=engine,
                 self_heal=True,
+                max_tokens=max_tokens,
             )
-            banner = format_telemetry_banner(
-                res.engine,
-                res.model,
-                res.tokens_per_sec,
-                res.completion_tokens,
-                res.duration_s,
-                res.saved_tokens,
-                res.saved_usd,
-            )
-            text_out = f"{code}\n\n{banner}"
-            return {"jsonrpc": "2.0", "id": request_id, "result": {"content": [{"type": "text", "text": text_out}]}}
+            return _result(request_id, f"{code}\n\n{format_result_banner(res, max_tokens)}")
 
-        elif tool_name == "local_status":
-            engines = client.router.list_all_engines()
-            lines = [
-                "⚡ Local Coder Multi-Engine Status:",
-                f"Hardware: {client.router.hardware}",
-                "------------------------------------",
-            ]
-            for eng in engines:
-                status = "ONLINE" if eng.is_online else "OFFLINE"
-                icon = "✅" if eng.is_online else "❌"
-                lines.append(f"{icon} {eng.name:<22} {status:<8} ({eng.latency_ms}ms) | {eng.base_url}")
-                if eng.installed_models:
-                    lines.append(f"   Models ({len(eng.installed_models)}): {', '.join(eng.installed_models[:5])}")
-            text_out = "\n".join(lines)
-            return {"jsonrpc": "2.0", "id": request_id, "result": {"content": [{"type": "text", "text": text_out}]}}
+        if tool_name == "local_status":
+            return _result(request_id, format_status(client.router, max_models=5))
 
-        elif tool_name == "list_local_models":
-            engines = client.router.list_all_engines()
-            all_models = {}
-            for eng in engines:
-                if eng.is_online:
-                    all_models[eng.name] = eng.installed_models
-            text_out = json.dumps(all_models, indent=2)
-            return {"jsonrpc": "2.0", "id": request_id, "result": {"content": [{"type": "text", "text": text_out}]}}
+        if tool_name == "list_local_models":
+            all_models = {eng.name: eng.installed_models for eng in client.router.list_all_engines() if eng.is_online}
+            return _result(request_id, json.dumps(all_models, indent=2))
 
-        else:
-            return {
-                "jsonrpc": "2.0",
-                "id": request_id,
-                "error": {"code": -32601, "message": f"Tool '{tool_name}' not found"},
-            }
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "error": {"code": -32601, "message": f"Tool '{tool_name}' not found"},
+        }
 
     except Exception as e:
         return {
@@ -288,6 +240,25 @@ def handle_call_tool(request_id: int | str, tool_name: str, arguments: dict) -> 
             "id": request_id,
             "error": {"code": -32603, "message": f"Execution error in {tool_name}: {e!s}"},
         }
+
+
+def handle_request(req: dict) -> dict | None:
+    """Dispatch one JSON-RPC message. Returns None for notifications, which must not be answered."""
+    method = req.get("method")
+    if "id" not in req:
+        return None
+    req_id = req["id"]
+
+    if method == "initialize":
+        return handle_initialize(req_id)
+    if method == "ping":
+        return {"jsonrpc": "2.0", "id": req_id, "result": {}}
+    if method == "tools/list":
+        return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": handle_list_tools()}}
+    if method == "tools/call":
+        params = req.get("params") or {}
+        return handle_call_tool(req_id, params.get("name", ""), params.get("arguments") or {})
+    return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"Method '{method}' not found"}}
 
 
 def main():
@@ -302,25 +273,12 @@ def main():
             req = json.loads(line)
         except json.JSONDecodeError as e:
             sys.stderr.write(f"JSON error: {e}\n")
-            continue
-
-        method = req.get("method")
-        req_id = req.get("id")
-
-        if method == "initialize":
-            res = handle_initialize(req_id)
-        elif method == "tools/list":
-            res = {"jsonrpc": "2.0", "id": req_id, "result": {"tools": handle_list_tools()}}
-        elif method == "tools/call":
-            params = req.get("params", {})
-            name = params.get("name", "")
-            args = params.get("arguments", {})
-            res = handle_call_tool(req_id, name, args)
+            res = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": f"Parse error: {e}"}}
         else:
-            res = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"Method '{method}' not found"}}
-
-        sys.stdout.write(json.dumps(res) + "\n")
-        sys.stdout.flush()
+            res = handle_request(req) if isinstance(req, dict) else None
+        if res is not None:
+            sys.stdout.write(json.dumps(res) + "\n")
+            sys.stdout.flush()
 
 
 if __name__ == "__main__":

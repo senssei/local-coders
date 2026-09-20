@@ -104,13 +104,14 @@ def build_refactor_prompt(
 
 
 def build_heal_prompt(invalid_code: str, error_message: str) -> list[dict[str, str]]:
-    """Build messages to heal a Python syntax error."""
+    """Build messages to heal Python code that failed validation."""
     user_prompt = (
-        f"The following Python code produced a syntax error:\n\n"
+        f"The following Python code failed validation:\n\n"
         f"```python\n{invalid_code}\n```\n\n"
-        f"SYNTAX ERROR:\n{error_message}\n\n"
+        f"VALIDATION ERROR:\n{error_message}\n\n"
         f"INSTRUCTIONS:\n"
-        f"- Fix the syntax error while preserving the exact intended behavior.\n"
+        f"- Fix the error while preserving the exact intended behavior.\n"
+        f"- Keep every existing function, class and test; do not remove or shorten code.\n"
         f"- Respond ONLY with the corrected code inside a ```python ... ``` block."
     )
     return [

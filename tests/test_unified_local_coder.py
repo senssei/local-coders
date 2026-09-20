@@ -10,12 +10,13 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 import local_coder_mcp_server
-from local_coder.client import UnifiedLocalCoderClient
+from local_coder.client import UnifiedLocalCoderClient, _requires_tests
 from local_coder.healing import heal_code_iterative, validate_python_code
 from local_coder.prompts import extract_code_block
-from local_coder.router import EngineRouter
-from local_coder.telemetry import calculate_savings
-from local_coder.types import EngineInfo, EngineType
+from local_coder.router import EngineRouter, normalize_ollama_host
+from local_coder.status import format_status
+from local_coder.telemetry import calculate_savings, format_result_banner
+from local_coder.types import CompletionResult, EngineInfo, EngineType
 
 
 class TestUnifiedRouter(unittest.TestCase):
@@ -53,6 +54,19 @@ class TestUnifiedRouter(unittest.TestCase):
         self.assertIn("qwen2.5-coder:7b", info.installed_models)
         self.assertEqual(info.engine_type, EngineType.OLLAMA)
 
+    def test_status_marks_shared_endpoint_as_alias(self):
+        router = EngineRouter()
+        prism = EngineInfo("Prism", EngineType.PRISM, "http://127.0.0.1:5272/v1", True, installed_models=["m"])
+        ollama = EngineInfo("Ollama", EngineType.OLLAMA, "http://localhost:11434/v1", False)
+        foundry = EngineInfo("Foundry", EngineType.FOUNDRY, "http://127.0.0.1:5272/v1", True, installed_models=["m"])
+        with (
+            patch("local_coder.router.platform.system", return_value="Linux"),
+            patch.object(router, "list_all_engines", return_value=[prism, ollama, foundry]),
+        ):
+            text = format_status(router)
+        self.assertIn("same server as Prism", text)
+        self.assertEqual(text.count("Models ("), 1)
+
     def test_resolve_engine_explicit_prism(self):
         with patch.object(
             self.router,
@@ -75,6 +89,46 @@ class TestUnifiedRouter(unittest.TestCase):
         with patch.object(self.router, "list_all_engines", return_value=[mock_prism, mock_ollama, mock_foundry]):
             target = self.router.resolve_target_engine(EngineType.AUTO)
             self.assertEqual(target.engine_type, EngineType.OLLAMA)
+
+    def test_normalize_ollama_host_variants(self):
+        cases = {
+            None: ("http://localhost:11434", "http://localhost:11434/v1"),
+            "127.0.0.1:11434": ("http://127.0.0.1:11434", "http://127.0.0.1:11434/v1"),
+            "0.0.0.0": ("http://127.0.0.1:11434", "http://127.0.0.1:11434/v1"),
+            ":8080": ("http://localhost:8080", "http://localhost:8080/v1"),
+            "http://box:9999/v1/": ("http://box:9999", "http://box:9999/v1"),
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw):
+                self.assertEqual(normalize_ollama_host(raw), expected)
+
+    @patch.dict(os.environ, {"OLLAMA_HOST": "127.0.0.1:11434"})
+    @patch("local_coder.router.requests.get")
+    def test_discover_ollama_bare_host_env(self, mock_get):
+        mock_get.return_value = MagicMock(status_code=200, json=lambda: {"models": []})
+        info = self.router.discover_ollama()
+        self.assertTrue(info.is_online)
+        self.assertEqual(info.base_url, "http://127.0.0.1:11434/v1")
+        self.assertEqual(mock_get.call_args.args[0], "http://127.0.0.1:11434/api/tags")
+
+    def test_rank_online_dedupes_shared_endpoint(self):
+        prism = EngineInfo("Prism", EngineType.PRISM, "http://127.0.0.1:5272/v1", True)
+        foundry = EngineInfo("Foundry", EngineType.FOUNDRY, "http://127.0.0.1:5272/v1/", True)
+        ollama = EngineInfo("Ollama", EngineType.OLLAMA, "http://localhost:11434/v1", True)
+        with patch("local_coder.router.platform.system", return_value="Linux"):
+            ranked = self.router.rank_online([foundry, ollama, prism])
+        self.assertEqual([e.engine_type for e in ranked], [EngineType.PRISM, EngineType.OLLAMA])
+
+    def test_failover_candidates_skip_failed_endpoint(self):
+        prism = EngineInfo("Prism", EngineType.PRISM, "http://127.0.0.1:5272/v1", True)
+        foundry = EngineInfo("Foundry", EngineType.FOUNDRY, "http://127.0.0.1:5272/v1", True)
+        ollama = EngineInfo("Ollama", EngineType.OLLAMA, "http://localhost:11434/v1", True)
+        with (
+            patch("local_coder.router.platform.system", return_value="Linux"),
+            patch.object(self.router, "list_all_engines", return_value=[prism, ollama, foundry]),
+        ):
+            candidates = self.router.failover_candidates(prism)
+        self.assertEqual([e.engine_type for e in candidates], [EngineType.OLLAMA])
 
 
 class TestUnifiedClient(unittest.TestCase):
@@ -114,6 +168,36 @@ class TestUnifiedClient(unittest.TestCase):
         self.assertIn("def healed()", final)
         self.assertEqual(attempts, 1)
 
+    def test_healing_rejects_candidate_that_discards_the_code(self):
+        broken = "def keep_me():\n    return 1\n" * 20 + "def oops(:\n"
+
+        def shrinking_healer(bad: str, err: str) -> str:
+            return "x = 1\n"
+
+        final, ok = heal_code_iterative(broken, shrinking_healer, max_retries=2, verbose=False)
+        self.assertFalse(ok)
+        self.assertEqual(final, broken)
+
+    def test_healing_extra_check_rejects_valid_but_empty_result(self):
+        source = "def helper():\n    return 1\n"
+        healed = "import pytest\n\ndef test_helper():\n    assert True\n"
+        calls = []
+
+        def healer(bad: str, err: str) -> str:
+            calls.append(err)
+            return healed
+
+        final, ok = heal_code_iterative(source, healer, verbose=False, extra_check=_requires_tests)
+        self.assertTrue(ok)
+        self.assertEqual(final, healed)
+        self.assertIn("no test functions", calls[0])
+
+    def test_requires_tests_detects_tests(self):
+        self.assertIsNone(_requires_tests("def test_a():\n    pass\n"))
+        self.assertIsNone(_requires_tests("class TestA:\n    pass\n"))
+        self.assertIsNone(_requires_tests("async def test_a():\n    pass\n"))
+        self.assertIsNotNone(_requires_tests("def helper():\n    pass\n"))
+
     def test_calculate_savings(self):
         tokens, usd = calculate_savings(1000, 2000)
         self.assertEqual(tokens, 3000)
@@ -142,6 +226,43 @@ class TestUnifiedClient(unittest.TestCase):
             self.assertEqual(res.prompt_tokens, 50)
             self.assertEqual(res.completion_tokens, 20)
 
+    def test_default_engine_from_env(self):
+        with patch.dict(os.environ, {"LOCAL_CODER_ENGINE": "ollama"}):
+            self.assertEqual(UnifiedLocalCoderClient().default_engine, EngineType.OLLAMA)
+        self.assertEqual(UnifiedLocalCoderClient("prism").default_engine, EngineType.PRISM)
+        with patch.dict(os.environ, {"LOCAL_CODER_ENGINE": "bogus"}), self.assertRaises(ValueError):
+            UnifiedLocalCoderClient()
+
+    @patch("local_coder.client.requests.post")
+    def test_complete_flags_truncation_and_forwards_max_tokens(self, mock_post):
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {"choices": [{"message": {"content": "def f("}, "finish_reason": "length"}]},
+        )
+        info = EngineInfo("Ollama", EngineType.OLLAMA, "http://localhost:11434/v1", True, installed_models=["m"])
+        with patch.object(self.client.router, "resolve_target_engine", return_value=info):
+            res = self.client.complete([{"role": "user", "content": "x"}], max_tokens=123)
+        self.assertTrue(res.truncated)
+        self.assertEqual(mock_post.call_args.kwargs["json"]["max_tokens"], 123)
+        self.assertIn("truncated", format_result_banner(res, 123))
+        self.assertNotIn("truncated", format_result_banner(CompletionResult("", "m", "e"), 123))
+
+    @patch("local_coder.client.requests.post")
+    def test_auto_failover_goes_to_different_endpoint(self, mock_post):
+        import requests
+
+        ok = MagicMock(status_code=200, json=lambda: {"choices": [{"message": {"content": "ok"}}]})
+        mock_post.side_effect = [requests.exceptions.ConnectionError("down"), ok]
+        prism = EngineInfo("Prism", EngineType.PRISM, "http://127.0.0.1:5272/v1", True)
+        ollama = EngineInfo("Ollama", EngineType.OLLAMA, "http://localhost:11434/v1", True)
+        with (
+            patch.object(self.client.router, "resolve_target_engine", side_effect=[prism, ollama]),
+            patch.object(self.client.router, "failover_candidates", return_value=[ollama]),
+        ):
+            res = self.client.complete([{"role": "user", "content": "x"}])
+        self.assertEqual(res.engine, "Ollama")
+        self.assertEqual(mock_post.call_args_list[1].args[0], "http://localhost:11434/v1/chat/completions")
+
 
 class TestUnifiedMCPServer(unittest.TestCase):
     """Tests for local_coder_mcp_server.py handlers."""
@@ -166,6 +287,24 @@ class TestUnifiedMCPServer(unittest.TestCase):
         self.assertEqual(resp["id"], 1)
         text = resp["result"]["content"][0]["text"]
         self.assertIn("Local Coder Multi-Engine Status", text)
+
+    def test_notifications_get_no_response(self):
+        self.assertIsNone(
+            local_coder_mcp_server.handle_request({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        )
+
+    def test_ping_and_unknown_method(self):
+        self.assertEqual(local_coder_mcp_server.handle_request({"id": 3, "method": "ping"})["result"], {})
+        resp = local_coder_mcp_server.handle_request({"id": 4, "method": "nope"})
+        self.assertEqual(resp["error"]["code"], -32601)
+
+    def test_local_code_forwards_max_tokens_and_reports_truncation(self):
+        res = CompletionResult("x", "m", "Ollama", finish_reason="length")
+        with patch.object(local_coder_mcp_server.client, "generate_code", return_value=("code", res)) as gen:
+            resp = local_coder_mcp_server.handle_call_tool(5, "local_code", {"task": "t", "max_tokens": 77})
+        self.assertEqual(gen.call_args.kwargs["max_tokens"], 77)
+        self.assertIsNone(gen.call_args.kwargs["engine"])
+        self.assertIn("truncated", resp["result"]["content"][0]["text"])
 
 
 if __name__ == "__main__":
