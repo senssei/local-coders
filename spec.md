@@ -52,4 +52,20 @@ Changing one of these is an operator gate (`AGENTS.md`).
 
 ## 5. Planned behavior
 
-- `MODEL_PROFILES["reasoning"]["prism"]` may change once Prism's fixes for its issues #5 and #6 are measured (`plan.md` Phase 1).
+- `MODEL_PROFILES["reasoning"]["prism"]` may change once Prism's fixes for its issues #5 and #6 are measured (`plan.md` Phase 3).
+- **Config-driven gate.** `scripts/sdlc_check.py` reads its check commands, `--base` default, `[changelog]` rule and
+  `--red` mode from `sdlc.toml` when present; it falls back to today's hardcoded behavior when the file is absent, so
+  removing `sdlc.toml` does not break the gate. Schema: `base`, `[[check]]` (`name` + `run` + optional `skip_if_missing`),
+  `[changelog]` (`file`, `runtime_paths`), `[red]` (`run` template with `{id}` substitution, `timeout`, `not_found`,
+  `ignore` regexes). The script's built-in smart logic (red headline extraction via junitxml, changelog diff rule) stays
+  and reads its inputs from the config. Stdlib only (`tomllib`, Python ≥ 3.11).
+- **Prism engine coverage (hermetic).** `tests/test_prism_engine.py` exercises the Prism code paths in `local_coder/` (endpoint
+  discovery, chat completion, error mapping, streaming truncation, retry on truncated output) against a fake Prism HTTP
+  server. The fake mirrors the API of the newest Prism checked out at `../03-foundy-local/prism/`. Tests never reach a real
+  Prism, network or `$HOME` (I6); the newest Prism is pinned by import path or vendored fixture, not by network fetch.
+  Hermetic-only by operator decision; no opt-in integration tier.
+- **MiniMax Code (mcode) harness.** `install.py` registers MiniMax Code the same way it already registers Claude Code,
+  Antigravity, opencode, Gemini CLI, Cursor and Codex: detection predicate (config dir or CLI on `PATH`), MCP registration
+  (writes through `local_coder_mcp_server.py`), skill path under the harness's skills directory, and uninstall cleanup.
+  `verified=true` only after a manual check on a real mcode install. Docs extend `MCODE.md` (today a one-paragraph stub)
+  and `docs/UNIFIED_LOCAL_CODER.md` (one row in the harness table).

@@ -35,7 +35,7 @@ Details: [`docs/SDLC.md`](docs/SDLC.md).
 | 3 | **Plan** | `plan.md` | Work is broken into `- [ ]` items under a phase, each naming its files and its test; operator approved. |
 | 4 | **Test** | `tests/` | A hermetic test exists and has been **seen failing for the right reason**: `python3 scripts/sdlc_check.py --red tests/test_x.py::test_name`. |
 | 5 | **Code** | source | The smallest change that turns the tests green. No unrelated refactors. |
-| 6 | **Review** | `REVIEW.md` | Independent review (fresh subagent or session) has no open finding, the gate is green, the operator approves. |
+| 6 | **Review** | `REVIEW.md` | The `sdlc-review` skill spawns a fresh subagent or session, finds no open finding; gate is green; operator approves. |
 
 ### Process rules
 

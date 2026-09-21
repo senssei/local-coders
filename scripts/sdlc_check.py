@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -24,7 +26,73 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from pathlib import Path
 
+import tomllib
+
 ROOT = Path(__file__).resolve().parent.parent
+
+
+class _ConfigError(Exception):
+    """Raised when `sdlc.toml` is structurally invalid (e.g. `[check]` instead of `[[check]]`)."""
+
+
+def _load_config() -> dict:
+    """Load `sdlc.toml` from the repo root, or `{}` when it is absent. Parse errors fail loudly.
+    Resolved lazily so tests can monkeypatch `ROOT` and see a fresh path.
+
+    Also catches the common `[check]` (single-table) typo for `[[check]]` (array-of-tables) —
+    tomllib parses the former as a dict, which would silently disable every override.
+    """
+    config_path = ROOT / "sdlc.toml"
+    if not config_path.is_file():
+        return {}
+    with config_path.open("rb") as f:
+        cfg = tomllib.load(f)
+    if "check" in cfg and not isinstance(cfg["check"], list):
+        raise _ConfigError(
+            "`check` must be `[[check]]` (array-of-tables), not `[check]` (single table); "
+            f"got {type(cfg['check']).__name__}"
+        )
+    return cfg
+
+
+def _default_base() -> str:
+    """`base` from sdlc.toml when present, else the hardcoded "main" (matches argparse default)."""
+    try:
+        return _load_config().get("base") or "main"
+    except _ConfigError:
+        return "main"
+
+
+def _run_configured_check(chk: dict) -> Result:
+    """Run one [[check]] entry from sdlc.toml: `run` via subprocess, honor `skip_if_missing`."""
+    name = chk.get("name") or "?"
+    cmd = chk.get("run")
+    if not cmd:
+        return "fail", f"sdlc.toml [[check]] {name!r} has no `run` command"
+    skip = chk.get("skip_if_missing")
+    if skip and not (shutil.which(skip) or Path(skip).exists()):
+        return "skip", f"{skip} not installed (skip_if_missing in sdlc.toml)"
+    proc = _run(shlex.split(cmd))
+    if proc.returncode == 0:
+        return "pass", _tail(proc, 1)
+    return "fail", _tail(proc)
+
+
+def dispatch_check(name: str, base: str) -> Result:
+    """Run the configured [[check]] for `name` if sdlc.toml has one, else fall back to the builtin."""
+    try:
+        cfg = _load_config()
+    except _ConfigError as e:
+        return "fail", f"sdlc.toml: {e}"
+    for chk in cfg.get("check", []):
+        if chk.get("name") == name:
+            return _run_configured_check(chk)
+    builtin = _BUILTINS.get(name)
+    if builtin is None:
+        return "fail", f"unknown check: {name!r} (no builtin and no [[check]] in sdlc.toml)"
+    return builtin(base)
+
+
 # Result: (status, detail) with status one of "pass", "fail", "skip".
 Result = tuple[str, str]
 RED_TIMEOUT_S = 60  # per test; a hanging test must not hang the agent that runs `--red`
@@ -47,8 +115,9 @@ def python() -> str:
     return str(venv) if venv.exists() else sys.executable
 
 
-def _run(cmd: list[str], cwd: Path = ROOT, timeout: float | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+def _run(cmd: list[str], cwd: Path | None = None, timeout: float | None = None) -> subprocess.CompletedProcess:
+    # `cwd` is resolved at call time so monkeypatching `ROOT` is honored (default arg would freeze it).
+    return subprocess.run(cmd, cwd=cwd or ROOT, capture_output=True, text=True, timeout=timeout)
 
 
 def _tail(proc: subprocess.CompletedProcess, lines: int = 25) -> str:
@@ -92,21 +161,41 @@ def check_tests(_base: str) -> Result:
     return ("pass", _tail(proc, 1)) if proc.returncode == 0 else ("fail", _tail(proc))
 
 
-def is_runtime(path: str) -> bool:
-    return path in RUNTIME_FILES or path.startswith(RUNTIME_PREFIXES)
+def is_runtime(path: str, runtime_paths: tuple[str, ...] = RUNTIME_PREFIXES) -> bool:
+    """A path is runtime when it is one of the well-known files or lives under one of the runtime prefixes.
+    `runtime_paths` is parameterised so callers (e.g. `check_changelog` reading sdlc.toml) can override it.
+    """
+    return path in RUNTIME_FILES or path.startswith(runtime_paths)
 
 
 def check_changelog(base: str) -> Result:
-    """Runtime changes (see RUNTIME_*) need a CHANGELOG.md entry, as CONTRIBUTING.md requires."""
+    """Runtime changes (see RUNTIME_*) need a CHANGELOG.md entry, as CONTRIBUTING.md requires.
+    `file` and `runtime_paths` come from [changelog] in sdlc.toml when present; otherwise the
+    module defaults (`CHANGELOG.md`, `RUNTIME_PREFIXES`).
+    """
+    try:
+        cfg = _load_config()
+    except _ConfigError as e:
+        return "fail", f"sdlc.toml: {e}"
+    chlog = cfg.get("changelog", {})
+    file = chlog.get("file", "CHANGELOG.md")
+    runtime_paths = tuple(chlog.get("runtime_paths", RUNTIME_PREFIXES))
     files = changed_files(base)
     if files is None:
         return "skip", f"cannot diff against {base!r} (no such ref or not a git checkout)"
-    code = [f for f in files if is_runtime(f)]
+    code = [f for f in files if is_runtime(f, runtime_paths)]
     if not code:
         return "pass", "no runtime code changed"
-    if "CHANGELOG.md" in files:
-        return "pass", f"{len(code)} runtime file(s) changed, CHANGELOG.md updated"
-    return "fail", "runtime code changed but CHANGELOG.md was not touched:\n  " + "\n  ".join(code)
+    if file in files:
+        return "pass", f"{len(code)} runtime file(s) changed, {file} updated"
+    return "fail", f"runtime code changed but {file} was not touched:\n  " + "\n  ".join(code)
+
+
+_BUILTINS: dict[str, Callable[[str], Result]] = {
+    "lint": check_lint,
+    "tests": check_tests,
+    "changelog": check_changelog,
+}
 
 
 def _headline(text: str) -> str:
@@ -166,9 +255,9 @@ def run_red(test_ids: list[str], timeout: float = RED_TIMEOUT_S) -> tuple[bool, 
 
 
 CHECKS: list[tuple[str, Callable[[str], Result]]] = [
-    ("lint", check_lint),
-    ("tests", check_tests),
-    ("changelog", check_changelog),
+    ("lint", lambda base: dispatch_check("lint", base)),
+    ("tests", lambda base: dispatch_check("tests", base)),
+    ("changelog", lambda base: dispatch_check("changelog", base)),
 ]
 
 
@@ -192,7 +281,7 @@ def main(argv: list[str] | None = None) -> int:
     for name, fn in CHECKS:
         if args.only and name not in args.only:
             continue
-        status, detail = fn(args.base or "main")
+        status, detail = fn(args.base or _default_base())
         print(f"[{status.upper():4}] {name}" + (f": {detail.splitlines()[0]}" if detail and status != "fail" else ""))
         if status == "fail":
             failed = True

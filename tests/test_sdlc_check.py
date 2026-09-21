@@ -203,6 +203,178 @@ class TestChangelogRule:
         assert sdlc_check.check_changelog("no-such-ref")[0] == "skip"
 
 
+class TestConfig:
+    """`sdlc.toml` drives check commands, the changelog rule, and the red mode. Absent config = today's behavior."""
+
+    def test_load_config_returns_empty_when_absent(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sdlc_check, "ROOT", tmp_path)  # no sdlc.toml inside
+        assert sdlc_check._load_config() == {}
+
+    def test_load_config_parses_present_toml(self, monkeypatch, tmp_path):
+        (tmp_path / "sdlc.toml").write_text(
+            textwrap.dedent(
+                """\
+                base = "main"
+
+                [[check]]
+                name = "tests"
+                run = "echo ok"
+
+                [changelog]
+                file = "DOCS.md"
+                runtime_paths = ["docs/"]
+
+                [red]
+                run = "echo red {id}"
+                timeout = 30
+                not_found = ["no tests"]
+                ignore = ["^FAILED"]
+                """
+            )
+        )
+        monkeypatch.setattr(sdlc_check, "ROOT", tmp_path)
+        cfg = sdlc_check._load_config()
+        assert cfg["base"] == "main"
+        assert cfg["check"][0]["name"] == "tests"
+        assert cfg["check"][0]["run"] == "echo ok"
+        assert cfg["changelog"]["file"] == "DOCS.md"
+        assert cfg["changelog"]["runtime_paths"] == ["docs/"]
+        assert cfg["red"]["run"] == "echo red {id}"
+        assert cfg["red"]["timeout"] == 30
+        assert cfg["red"]["not_found"] == ["no tests"]
+        assert cfg["red"]["ignore"] == ["^FAILED"]
+
+    def test_dispatch_runs_configured_tests_command(self, monkeypatch, tmp_path):
+        """[[check]] name=tests overrides the builtin pytest runner."""
+        (tmp_path / "sdlc.toml").write_text(
+            textwrap.dedent(
+                """\
+                [[check]]
+                name = "tests"
+                run = "echo hi-from-config"
+                """
+            )
+        )
+        monkeypatch.setattr(sdlc_check, "ROOT", tmp_path)
+
+        captured: list = []
+
+        def fake_run(cmd, *args, **kwargs):
+            captured.append(cmd)
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="hi-from-config\n", stderr="")
+
+        monkeypatch.setattr(sdlc_check, "_run", fake_run)
+        status, detail = sdlc_check.dispatch_check("tests", "main")
+        assert status == "pass", detail
+        assert "hi-from-config" in detail
+        # The configured command was the one actually invoked (not the builtin pytest args).
+        assert any("hi-from-config" in str(cmd) for cmd in captured), captured
+
+    def test_default_base_uses_config(self, monkeypatch, tmp_path):
+        """`base = "..."` in sdlc.toml becomes the default base ref for the gate."""
+        (tmp_path / "sdlc.toml").write_text('base = "origin/main"\n')
+        monkeypatch.setattr(sdlc_check, "ROOT", tmp_path)
+        assert sdlc_check._default_base() == "origin/main"
+
+    def test_default_base_falls_back_to_main(self, monkeypatch, tmp_path):
+        """No sdlc.toml → default base is the same hardcoded "main" as before."""
+        monkeypatch.setattr(sdlc_check, "ROOT", tmp_path)  # no sdlc.toml
+        assert sdlc_check._default_base() == "main"
+
+    def test_dispatch_changelog_runs_configured_command(self, monkeypatch, tmp_path):
+        """[[check]] name=changelog overrides the builtin changelog check via the gate (not just dispatch_check in isolation)."""
+        (tmp_path / "sdlc.toml").write_text(
+            textwrap.dedent(
+                """\
+                [[check]]
+                name = "changelog"
+                run = "echo from-config-changelog"
+                """
+            )
+        )
+        monkeypatch.setattr(sdlc_check, "ROOT", tmp_path)
+
+        captured: list = []
+
+        # Empty stdout so the marker string doesn't leak into downstream `git diff` args.
+        def fake_run(cmd, *args, **kwargs):
+            captured.append(cmd)
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(sdlc_check, "_run", fake_run)
+        rc = sdlc_check.main(["--only", "changelog"])
+        assert rc == 0, f"gate exit was {rc}, captured={captured}"
+        # The configured command must be the one actually invoked (not the builtin check_changelog git chain).
+        assert any(cmd[:2] == ["echo", "from-config-changelog"] for cmd in captured), captured
+
+    def test_changelog_is_a_dispatchable_builtin(self, monkeypatch, tmp_path):
+        """changelog is registered as a builtin so dispatch_check falls back to it (not 'unknown check')."""
+        monkeypatch.setattr(sdlc_check, "ROOT", tmp_path)  # no sdlc.toml
+        assert "changelog" in sdlc_check._BUILTINS
+        assert sdlc_check._BUILTINS["changelog"] is sdlc_check.check_changelog
+
+    def test_changelog_uses_configured_runtime_paths_and_file(self, repo, monkeypatch):
+        """[changelog].runtime_paths and [changelog].file are honored, not the module defaults."""
+        (repo / "sdlc.toml").write_text(
+            textwrap.dedent(
+                """\
+                [changelog]
+                file = "DOCS.md"
+                runtime_paths = ["docs/"]
+                """
+            )
+        )
+        (repo / "docs").mkdir()
+        (repo / "docs" / "foo.md").write_text("x")
+        real = sdlc_check.changed_files
+        monkeypatch.setattr(sdlc_check, "changed_files", lambda base: real(base, cwd=repo))
+        monkeypatch.setattr(sdlc_check, "ROOT", repo)
+        status, detail = sdlc_check.check_changelog("HEAD")
+        # docs/foo.md is runtime per config; DOCS.md absent → fail
+        assert status == "fail"
+        assert "docs/foo.md" in detail
+        # Adding DOCS.md makes it pass
+        (repo / "DOCS.md").write_text("## Unreleased\n")
+        assert sdlc_check.check_changelog("HEAD")[0] == "pass"
+
+    def test_load_config_rejects_check_as_single_table(self, monkeypatch, tmp_path):
+        """`[check]` (single-table) is a common typo for `[[check]]`; it must fail loudly, not silently fall back."""
+        (tmp_path / "sdlc.toml").write_text(
+            textwrap.dedent(
+                """\
+                [check]
+                name = "tests"
+                run = "echo oops"
+                """
+            )
+        )
+        monkeypatch.setattr(sdlc_check, "ROOT", tmp_path)
+        status, detail = sdlc_check.dispatch_check("tests", "main")
+        assert status == "fail"
+        assert "[[check]]" in detail and "[check]" in detail
+
+    def test_run_default_cwd_uses_monkeypatched_root(self, monkeypatch, tmp_path):
+        """`_run(cmd)` without `cwd=` resolves `ROOT` at call time so tests can redirect it."""
+        monkeypatch.setattr(sdlc_check, "ROOT", tmp_path)
+        # Run a no-op pwd-equivalent and confirm the captured cwd is the monkeypatched tmp_path.
+        captured: dict = {}
+
+        def fake_run(cmd, *args, **kwargs):
+            captured["cmd"] = cmd
+            captured["cwd"] = kwargs.get("cwd") or (args[0] if args else None)
+            return subprocess.CompletedProcess(cmd, returncode=0, stdout=str(tmp_path), stderr="")
+
+        monkeypatch.setattr(sdlc_check.subprocess, "run", fake_run)
+        sdlc_check._run(["true"])
+        assert Path(str(captured["cwd"])).resolve() == tmp_path.resolve()
+
+    def test_is_runtime_accepts_runtime_paths_parameter(self):
+        """`is_runtime` takes an explicit `runtime_paths` tuple so callers (e.g. check_changelog) can override."""
+        assert sdlc_check.is_runtime("local_coder/x.py") is True
+        assert sdlc_check.is_runtime("local_coder/x.py", runtime_paths=("docs/",)) is False
+        assert sdlc_check.is_runtime("docs/foo.md", runtime_paths=("docs/",)) is True
+
+
 HOOK = ROOT / ".githooks" / "pre-commit"
 
 
