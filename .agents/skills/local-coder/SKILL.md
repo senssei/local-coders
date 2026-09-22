@@ -90,7 +90,7 @@ python3 ask_coder.py --engine ollama code --task "..."
 
 ## 🔌 Model Context Protocol (MCP)
 
-When registered via `python3 install.py` (or `./install_unified.sh`), the stdio MCP server `local-coder-unified-mcp` exposes the following tools:
+When registered via `python3 install.py`, the stdio MCP server `local-coder-unified-mcp` exposes the following tools:
 - `local_code(task, context_code, engine, profile, model, max_tokens)`
 - `local_test(code, file_path, framework, engine, max_tokens)`
 - `local_code_review(code, file_path, focus, engine, max_tokens)`

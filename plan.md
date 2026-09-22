@@ -47,7 +47,10 @@ Order: this phase comes first by operator decision (config-driven before Prism+m
 
 ## Phase 2: Prism test coverage + MiniMax Code (mcode) harness
 
-Status: not approved; the operator reviews `spec.md` §5 and the items below before any code is written.
+Status: shims done (test-first, gate green). mcode harness deferred — operator confirmed the MCP registration mechanism is
+not known yet (`mcode mcp` is absent in the binary; current CLI exposes `init/exec/acp/login/plugin`). When the layout is
+known: detection predicate must accept all three skills dirs (`~/.minimax-code/skills`, `~/.config/mcode/skills`,
+`~/.agents/skills`). Prism hermetic tests still await operator approval of `spec.md` §5.
 
 - [ ] **Hermetic Prism engine tests** against the newest Prism (`../03-foundy-local/prism/`).
   Files: `tests/test_prism_engine.py` (new), `tests/fakes/prism_fake.py` (new fake HTTP server mirroring newest Prism API).
@@ -57,7 +60,7 @@ Status: not approved; the operator reviews `spec.md` §5 and the items below bef
   by a vendored schema snapshot; if neither is available the test is skipped with a clear message, never silently passing.
   Scope is hermetic-only — no opt-in integration tier, per operator decision.
   Risks: the newest Prism API may differ from what `local_coder/` calls; the fakes must be kept in sync with `../03-foundy-local`.
-- [ ] **MiniMax Code (mcode) harness support.**
+- [ ] **MiniMax Code (mcode) harness support.** *(deferred — see phase Status; resume when MCP layout is known)*
   Files: `install.py` (extend `HARNESSES` with a `mcode` entry: detection predicate, MCP registration, skill path,
   uninstall cleanup), `MCODE.md` (extend beyond the stub with install/uninstall steps and a pointer to
   `docs/UNIFIED_LOCAL_CODER.md`), `docs/UNIFIED_LOCAL_CODER.md` (add the mcode row to the harness table),
@@ -66,6 +69,17 @@ Status: not approved; the operator reviews `spec.md` §5 and the items below bef
   are read from the same place `MCODE.md` documents; if they differ between MiniMax Code versions, the detection
   predicate accepts both. `verified=false` until a manual install on a real mcode is confirmed; `tests/test_installer.py`
   covers the mechanics.
+- [x] **Remove deprecated `install_*.sh` shims.**
+  The four wrappers at the repo root (`install_foundry_skill.sh`, `install_global_skill.sh`, `install_prism.sh`,
+  `install_unified.sh`) declare themselves deprecated in their own header and only forward to `install.py
+  --components <X>`. Removing them: deletes the four files; updates every doc that still mentions them
+  (`README.md`, `AGENTS.md`, `docs/MCP_SERVER.md`, `docs/PRISM_LOCAL.md`, `docs/OLLAMA_CODER_SKILL.md`,
+  `docs/FOUNDRY_CODER_SKILL.md`, `docs/UNIFIED_LOCAL_CODER.md`) to call `python3 install.py --components <X>`
+  directly; rewrites `tests/test_prism_integration.py::test_install_prism_script_exists_and_executable` so it
+  instead asserts `python3 install.py --dry-run --components prism` exits 0 (the modern path replaces the wrapper).
+  Test: rewritten `tests/test_prism_integration.py::test_install_prism_script_exists_and_executable` (now
+  `test_install_py_accepts_prism_component`) is hermetic: it only invokes the local installer in `--dry-run` mode
+  and reads its output. No real harness, no network. The other harness tests are unchanged.
 
 ---
 
@@ -87,3 +101,21 @@ Status: waiting for the operator's go-ahead to start Prism (never start it witho
 
 - [ ] Confirm `.cursor/rules/local-coder.mdc` in the Cursor desktop app (only the CLI was checked).
 - [ ] `test` and `refactor` accept `--language` (today Python only).
+- [x] **E2E smoke + `ast.parse` against a real Ollama.**
+  Files: `tests/e2e/__init__.py` (empty), `tests/e2e/fixtures/sample_app/math_utils.py` (3-function module:
+  `add`, `subtract` (buggy on purpose: `return a + b` instead of `a - b`), `safe_divide` (missing
+  `ZeroDivisionError`), plus `__init__.py` to make it a package), `tests/e2e/test_cli_smoke.py` (new).
+  Test: `tests/e2e/test_cli_smoke.py::TestCliSmoke` skips unless `LOCAL_CODER_E2E=1` is set in the
+  environment and Ollama answers `GET http://127.0.0.1:11434/api/tags` within 1 second; otherwise it skips
+  with a clear reason. Two tests run `python3 ask_coder.py` from the repo root exactly as an operator would
+  (subprocess, `cwd=REPO_ROOT`, real `PATH`):
+    * `test_status_reports_engine` — `status --explain` exits 0 and mentions "ollama".
+    * `test_code_produces_parseable_python` — `code --task "Write a Python function that takes a list
+      of integers and returns the sum of the even ones" --language python --engine ollama` exits 0; the
+      first fenced ```python block in stdout (extracted with `local_coder.prompts.extract_code_block`)
+      parses cleanly through `ast.parse`.
+  `tests/conftest.py` already isolates routing files, discovery cache and perf state, so this suite never
+  writes to the real `~/.local/state/local-coders/`. Out of scope for `scripts/sdlc_check.py` (the gate stays
+  hermetic and fast); run with `LOCAL_CODER_E2E=1 .venv/bin/python -m pytest tests/e2e/`. Not a substitute
+  for the hermetic `tests/test_prism_engine.py` (Phase 2) — it only exercises the CLI plumbing with a live
+  engine, and it does not assert that any specific bug is fixed.

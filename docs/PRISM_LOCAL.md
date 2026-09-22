@@ -27,7 +27,7 @@ However, on **Linux / WSL2**:
 Register the Prism MCP server with your coding harnesses via the bundled installer (it needs `prism` on `PATH`; install
 Prism itself with `pip install 'prism-local[cuda]'`):
 ```bash
-python3 install.py --components prism        # or the wrapper: ./install_prism.sh
+python3 install.py --components prism
 ```
 
 ### 1. Environment Diagnostics (`prism doctor`)

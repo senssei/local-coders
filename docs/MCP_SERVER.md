@@ -79,7 +79,6 @@ python3 install.py --python /usr/bin/python3                      # unified loca
 python3 install.py --python /usr/bin/python3 --components all     # plus ollama-local, foundry-local, prism
 python3 install.py --uninstall
 ```
-The old `install_unified.sh`, `install_global_skill.sh`, `install_foundry_skill.sh` and `install_prism.sh` are wrappers around it.
 
 Resulting Antigravity entry (`~/.gemini/config/mcp_config.json`) with `--components all`; other harnesses get the same servers in their own format:
 ```json

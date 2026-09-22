@@ -65,7 +65,7 @@ python3 install.py --list       # supported harnesses and what was detected
 python3 install.py --dry-run    # show every change, make none
 python3 install.py --python /usr/bin/python3
 ```
-The code is staged once in `~/.local/share/local-coders/`; skills are symlinks to it, `ask-coder` is linked into `~/.local/bin`, and the MCP entry points at `local_coder_mcp_server.py` there. See the [README](../README.md#install) for the harness table and flags. `./install_unified.sh` still works as a wrapper.
+The code is staged once in `~/.local/share/local-coders/`; skills are symlinks to it, `ask-coder` is linked into `~/.local/bin`, and the MCP entry points at `local_coder_mcp_server.py` there. See the [README](../README.md#install) for the harness table and flags.
 
 ---
 

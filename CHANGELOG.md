@@ -17,6 +17,9 @@ All user-visible changes. Format: [Keep a Changelog](https://keepachangelog.com/
   opt-in pre-commit hook (`docs/SDLC.md`).
 - Antigravity CLI (`agy`) support for AI-native SDLC: `GEMINI.md` harness configuration, `/sdlc` slash command routing, and
   `invoke_subagent` delegation for Stage 6 independent review.
+- End-to-end smoke tests for `ask_coder.py` against a real Ollama (`tests/e2e/`). Opt-in: skip by default,
+  run with `LOCAL_CODER_E2E=1 .venv/bin/python -m pytest tests/e2e/`. The `code` subcommand's fenced output
+  is asserted to parse with `ast.parse`. Out of `scripts/sdlc_check.py` (the gate stays hermetic and fast).
 
 ### Changed
 - AUTO routing tries Ollama first (Prism only through a `prefer` rule); explicit `*coder*` model names avoid Prism.
@@ -28,3 +31,7 @@ All user-visible changes. Format: [Keep a Changelog](https://keepachangelog.com/
 ### Fixed
 - `extract_code_block` handles fences without a language, unclosed fences and multiple blocks.
 - Self-healing no longer accepts a much shorter rewrite or a test file without tests, and skips truncated output.
+
+### Removed
+- Deprecated wrappers at the repo root: `install_foundry_skill.sh`, `install_global_skill.sh`, `install_prism.sh`,
+  `install_unified.sh`. Use `python3 install.py --components <name>` directly (the only path now documented).

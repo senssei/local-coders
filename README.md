@@ -59,8 +59,7 @@ you wrote yourself). Existing skill directories are moved to `~/.local/share/loc
 `~/.cursor/mcp.json` after the last entry goes). A file with other content stays, with only our entries taken out. Windows is not supported (use WSL);
 a Windows-side Gemini CLI keeps its config on the Windows side, out of reach of a WSL install.
 
-The old `install_unified.sh`, `install_global_skill.sh`, `install_foundry_skill.sh` and `install_prism.sh` are now thin
-wrappers around `install.py`. A standalone, independently distributable copy of the Ollama skill lives in
+A standalone, independently distributable copy of the Ollama skill lives in
 [`packages/antigravity-local-coder/`](packages/antigravity-local-coder/) for independent publishing.
 
 ## Docs

@@ -116,7 +116,7 @@ To unlock full NVIDIA CUDA GPU acceleration on Linux / WSL2:
 
 To register the skill and its MCP server with every coding harness on the machine (Claude Code, Antigravity, opencode, ...):
 ```bash
-python3 install.py --python /usr/bin/python3 --components foundry-coder   # or ./install_foundry_skill.sh
+python3 install.py --python /usr/bin/python3 --components foundry-coder
 ```
 This stages the code in `~/.local/share/local-coders/`, links the skill into each harness, links `ask-foundry` / `ask_foundry.py` into `~/.local/bin`, and registers `foundry-local`. See the [README](../README.md#install).
 

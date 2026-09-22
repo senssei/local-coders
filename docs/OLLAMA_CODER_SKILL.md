@@ -160,7 +160,7 @@ $$\text{Cost Saved} = \left(\frac{\text{Prompt Tokens}}{1,000,000} \times \$3.00
 
 To register the skill and its MCP server with every coding harness on the machine (Claude Code, Antigravity, opencode, ...):
 ```bash
-python3 install.py --python /usr/bin/python3 --components ollama-coder   # or ./install_global_skill.sh
+python3 install.py --python /usr/bin/python3 --components ollama-coder
 ```
 This stages the code in `~/.local/share/local-coders/`, links the skill into each harness, links `ask-local` / `ask_local.py` into `~/.local/bin`, and registers `ollama-local`. See the [README](../README.md#install).
 
