@@ -47,12 +47,12 @@ Order: this phase comes first by operator decision (config-driven before Prism+m
 
 ## Phase 2: Prism test coverage + MiniMax Code (mcode) harness
 
-Status: shims done (test-first, gate green). mcode harness deferred — operator confirmed the MCP registration mechanism is
-not known yet (`mcode mcp` is absent in the binary; current CLI exposes `init/exec/acp/login/plugin`). When the layout is
-known: detection predicate must accept all three skills dirs (`~/.minimax-code/skills`, `~/.config/mcode/skills`,
-`~/.agents/skills`). Prism hermetic tests still await operator approval of `spec.md` §5.
+Status: shims + Prism hermetic tests done (gate green). mcode harness deferred — operator confirmed the MCP
+registration mechanism is not known yet (`mcode mcp` is absent in the binary; current CLI exposes
+`init/exec/acp/login/plugin`). When the layout is known: detection predicate must accept all three skills dirs
+(`~/.minimax-code/skills`, `~/.config/mcode/skills`, `~/.agents/skills`).
 
-- [ ] **Hermetic Prism engine tests** against the newest Prism (`../03-foundy-local/prism/`).
+- [x] **Hermetic Prism engine tests** against the newest Prism (`../03-foundy-local/prism/`).
   Files: `tests/test_prism_engine.py` (new), `tests/fakes/prism_fake.py` (new fake HTTP server mirroring newest Prism API).
   Test: `tests/test_prism_engine.py::TestPrismEngine` covers endpoint discovery, chat completion, error mapping,
   streaming truncation, retry on truncated output (I3). Hermetic by construction (I6): no real Prism, no network,

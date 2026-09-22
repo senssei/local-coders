@@ -20,6 +20,12 @@ All user-visible changes. Format: [Keep a Changelog](https://keepachangelog.com/
 - End-to-end smoke tests for `ask_coder.py` against a real Ollama (`tests/e2e/`). Opt-in: skip by default,
   run with `LOCAL_CODER_E2E=1 .venv/bin/python -m pytest tests/e2e/`. The `code` subcommand's fenced output
   is asserted to parse with `ast.parse`. Out of `scripts/sdlc_check.py` (the gate stays hermetic and fast).
+- Hermetic Prism engine coverage (`tests/test_prism_engine.py` + `tests/fakes/prism_fake.py`). Spins up a real
+  HTTP server on loopback and points the production code at it via `PRISM_BASE_URL`. Covers discovery
+  (online, 5xx, no server), chat completion happy path, 404 → `ModelNotInstalledError`, 503 → `RuntimeError`,
+  and retry-on-truncation (`_complete_extendable`). The fake's API shape is pinned by `import prism` from
+  `../03-foundy-local` — if the live reference cannot be imported the suite errors loudly rather than
+  silently passing.
 
 ### Changed
 - AUTO routing tries Ollama first (Prism only through a `prefer` rule); explicit `*coder*` model names avoid Prism.
