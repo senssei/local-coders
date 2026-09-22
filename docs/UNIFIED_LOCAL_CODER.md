@@ -80,9 +80,9 @@ ask_coder.py [--engine auto|prism|ollama|foundry] <code|test|review|refactor|sta
 | Subcommand | Options |
 |---|---|
 | `code` | `--task` *(required)*, `--files F…`, `--model`, `--profile coding\|fast\|reasoning`, `--language`, `--output`, `--no-heal`, `--max-tokens` |
-| `test` | `--file` *(required)*, `--framework pytest\|unittest`, `--model`, `--output`, `--no-heal`, `--max-tokens` |
+| `test` | `--file` *(required)*, `--framework FRAMEWORK` *(default: pytest for Python)*, `--language` *(default: python)*, `--model`, `--output`, `--no-heal`, `--max-tokens` |
 | `review` | `--file` *(required)*, `--focus`, `--language` *(default: guessed from the file extension)*, `--model`, `--output`, `--max-tokens` |
-| `refactor` | `--file` *(required)*, `--type-hints/--no-type-hints`, `--docstrings/--no-docstrings` *(both on by default)*, `--model`, `--output`, `--no-heal`, `--max-tokens` |
+| `refactor` | `--file` *(required)*, `--language` *(default: python)*, `--type-hints/--no-type-hints`, `--docstrings/--no-docstrings` *(both on by default)*, `--model`, `--output`, `--no-heal`, `--max-tokens` |
 | `status` | `--explain` |
 | `perf` | `--line` *(default)* or `--json`, `--max-age`, `--color`: the latest call and today's totals, for [status lines](STATUSLINE.md) |
 
@@ -140,9 +140,9 @@ python3 ask_coder.py --engine foundry code --task "..."
 | Tool | Parameters | Purpose |
 |---|---|---|
 | `local_code` | `task` *(required)*, `context_code`, `language`, `engine`, `profile`, `model`, `max_tokens` | Generates code: Python with AST self-healing, other languages unchecked. |
-| `local_test` | `code` *(required)*, `file_path`, `framework`, `engine`, `max_tokens` | Generates a `pytest` or `unittest` suite. |
+| `local_test` | `code` *(required)*, `file_path`, `framework`, `language`, `engine`, `max_tokens` | Generates unit tests (default pytest for Python, other languages unchecked). |
 | `local_code_review` | `code` *(required)*, `file_path`, `focus`, `language`, `engine`, `max_tokens` | Audits code for security, races and bottlenecks. |
-| `local_refactor` | `code` *(required)*, `file_path`, `type_hints`, `docstrings`, `engine`, `max_tokens` | Adds type annotations and docstrings. |
+| `local_refactor` | `code` *(required)*, `file_path`, `type_hints`, `docstrings`, `language`, `engine`, `max_tokens` | Adds type annotations and docstrings for Python; refactors other languages. |
 | `local_status` | `explain` | Hardware, engines, latency, models; `explain: true` adds routing rules. |
 | `local_perf` | _none_ | Engine, model and speed of the latest calls plus today's totals ([status line](STATUSLINE.md) data). |
 | `list_local_models` | _none_ | Models on every engine that is online. |
@@ -215,7 +215,7 @@ For `code`, `test` and `refactor` the generated Python is checked with `ast.pars
 - Output that was cut off at the token limit is not "healed": a repair request cannot restore the missing part. It prints `[Self-Healing] skipped` and returns what it has, together with the truncation warning.
 - After the last attempt it prints `Giving up` and returns the best effort. **The output is not guaranteed to be valid**, so check the `[Self-Healing]` lines on stderr.
 - It checks syntax only. It does not run the code or the tests.
-- For anything that is not Python (Dockerfiles, shell, YAML, Markdown, ...) use `--language <name>` (`language` in `local_code`). It changes the prompt, which otherwise asks for Python, and turns the check off because there is nothing to parse; the result is returned unchecked, so verify it yourself (for example `bash -n script.sh`). `--no-heal` on its own only skips validation, the prompt would still ask for Python. `--language` applies to `code` and `review`; `review` guesses it from the file extension when you do not give one. `test` and `refactor` work on Python.
+- For anything that is not Python (Dockerfiles, shell, YAML, Markdown, ...) use `--language <name>` (`language` in `local_code`, `local_test`, `local_refactor`, `local_code_review`). It changes the prompt, which otherwise asks for Python, and turns the check off because there is nothing to parse; the result is returned unchecked, so verify it yourself (for example `bash -n script.sh`). `--no-heal` on its own only skips validation, the prompt would still ask for Python. `--language` applies to all subcommands (`code`, `test`, `refactor`, `review`); `review` guesses it from the file extension when you do not give one, while the others default to Python.
 
 ### Which code is taken from the answer
 The answer is reduced to code before it is validated or written to `--output`, in this order:

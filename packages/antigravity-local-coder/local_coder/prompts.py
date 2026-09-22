@@ -100,21 +100,33 @@ def build_code_prompt(
 
 
 def build_test_prompt(
-    source_code: str, file_path: str, framework: str = "pytest", instructions: str | None = None
+    source_code: str,
+    file_path: str,
+    framework: str | None = None,
+    instructions: str | None = None,
+    language: str | None = "python",
 ) -> list[dict[str, str]]:
     """Build messages for unit test authoring."""
+    lang = normalize_language(language) if language else "python"
+    if framework is None and lang == "python":
+        framework = "pytest"
+    fw_instruction = (
+        f"- Write a comprehensive test suite for the code above using `{framework}`.\n"
+        if framework
+        else "- Write a comprehensive test suite for the code above.\n"
+    )
     user_prompt = (
         f"SOURCE FILE: {file_path}\n"
-        f"```python\n{source_code}\n```\n\n"
+        f"```{lang}\n{source_code}\n```\n\n"
         f"INSTRUCTIONS:\n"
-        f"- Write a comprehensive test suite for the code above using `{framework}`.\n"
+        f"{fw_instruction}"
         f"- Cover happy paths, edge cases, error conditions, and parameter validation.\n"
         f"- Provide realistic fixtures/mocks where appropriate.\n"
         + (f"- {instructions}\n" if instructions else "")
-        + "- Respond only with the test code inside a ```python ... ``` block."
+        + f"- Respond only with the test code inside a single ```{lang} ... ``` block."
     )
     return [
-        {"role": "system", "content": SYSTEM_CODER},
+        {"role": "system", "content": system_coder(lang)},
         {"role": "user", "content": user_prompt},
     ]
 
@@ -170,23 +182,26 @@ def build_refactor_prompt(
     type_hints: bool = True,
     docstrings: bool = True,
     instructions: str | None = None,
+    language: str | None = "python",
 ) -> list[dict[str, str]]:
     """Build messages for refactoring and typing."""
+    lang = normalize_language(language) if language else "python"
     directives: list[str] = []
-    if type_hints:
-        directives.append("Add strict PEP 484 type annotations across all functions, methods, and variables.")
-    if docstrings:
-        directives.append("Add comprehensive PEP 257 docstrings with parameter descriptions and return types.")
+    if lang == "python":
+        if type_hints:
+            directives.append("Add strict PEP 484 type annotations across all functions, methods, and variables.")
+        if docstrings:
+            directives.append("Add comprehensive PEP 257 docstrings with parameter descriptions and return types.")
     if instructions:
         directives.append(instructions)
     if not directives:
-        directives.append("Improve readability and naming and follow PEP 8.")
+        directives.append("Improve readability and naming.")
     directives.append("Preserve all existing business logic and public interfaces.")
-    directives.append("Respond only with the complete refactored code inside a ```python ... ``` block.")
+    directives.append(f"Respond only with the complete refactored code inside a single ```{lang} ... ``` block.")
 
-    user_prompt = f"FILE: {file_path}\n```python\n{source_code}\n```\n\nINSTRUCTIONS:\n- " + "\n- ".join(directives)
+    user_prompt = f"FILE: {file_path}\n```{lang}\n{source_code}\n```\n\nINSTRUCTIONS:\n- " + "\n- ".join(directives)
     return [
-        {"role": "system", "content": SYSTEM_CODER},
+        {"role": "system", "content": system_coder(lang)},
         {"role": "user", "content": user_prompt},
     ]
 

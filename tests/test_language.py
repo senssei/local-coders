@@ -67,6 +67,75 @@ class TestPrompts(unittest.TestCase):
                 normalize_language(bad)
         self.assertEqual(system_coder("python"), system_coder(None))
 
+    def test_test_prompt_fences_with_the_chosen_language(self):
+        """``build_test_prompt`` honours ``language``: bash → `` ```bash `` fence and bash closing fence."""
+        from local_coder.prompts import build_test_prompt
+
+        user = build_test_prompt("echo hi", "deploy.sh", "pytest", language="bash")[1]["content"]
+        self.assertIn("```bash\necho hi", user)
+        self.assertIn("```bash ... ```", user)  # the closing fence matches the chosen language
+        self.assertNotIn("```python", user)  # no Python fence anywhere
+
+    def test_test_prompt_system_message_matches_language(self):
+        """``build_test_prompt`` uses ``system_coder(lang)``, not hardcoded Python ``SYSTEM_CODER``."""
+        from local_coder.prompts import build_test_prompt
+
+        messages = build_test_prompt("echo hi", "deploy.sh", language="bash")
+        system = messages[0]["content"]
+        self.assertIn("bash", system)
+        self.assertNotIn("```python", system)
+
+    def test_refactor_prompt_system_message_matches_language(self):
+        """``build_refactor_prompt`` uses ``system_coder(lang)``, not hardcoded Python ``SYSTEM_CODER``."""
+        from local_coder.prompts import build_refactor_prompt
+
+        messages = build_refactor_prompt("echo hi", "deploy.sh", language="bash")
+        system = messages[0]["content"]
+        self.assertIn("bash", system)
+        self.assertNotIn("```python", system)
+
+    def test_test_prompt_defaults_to_python(self):
+        """No language → `` ```python `` fence (today's behaviour preserved)."""
+        from local_coder.prompts import build_test_prompt
+
+        user = build_test_prompt("def f(): pass", "m.py", "pytest")[1]["content"]
+        self.assertIn("```python\ndef f(): pass", user)
+
+    def test_test_prompt_framework_custom_and_omitted(self):
+        """Custom framework is mentioned; omitted framework for non-Python does not force pytest."""
+        from local_coder.prompts import build_test_prompt
+
+        user_custom = build_test_prompt("echo hi", "deploy.sh", framework="bats", language="bash")[1]["content"]
+        self.assertIn("using `bats`", user_custom)
+
+        user_omitted = build_test_prompt("echo hi", "deploy.sh", language="bash")[1]["content"]
+        self.assertNotIn("pytest", user_omitted)
+        self.assertIn("- Write a comprehensive test suite for the code above.\n", user_omitted)
+
+    def test_refactor_prompt_fences_with_the_chosen_language(self):
+        """``build_refactor_prompt`` honours ``language``: bash → `` ```bash `` fence, no Python directives."""
+        from local_coder.prompts import build_refactor_prompt
+
+        user = build_refactor_prompt(
+            "echo hi",
+            "deploy.sh",
+            type_hints=True,
+            docstrings=False,
+            language="bash",
+        )[1]["content"]
+        self.assertIn("```bash\necho hi", user)
+        self.assertNotIn("PEP 484", user)
+        self.assertNotIn("PEP 257", user)
+
+    def test_refactor_prompt_defaults_to_python(self):
+        """No language → `` ```python `` fence, Python-only directives."""
+        from local_coder.prompts import build_refactor_prompt
+
+        user = build_refactor_prompt("def f(): pass", "m.py")[1]["content"]
+        self.assertIn("```python\ndef f(): pass", user)
+        self.assertIn("PEP 484", user)
+        self.assertIn("PEP 257", user)
+
 
 class TestClientLanguage(unittest.TestCase):
     def setUp(self):
@@ -218,12 +287,104 @@ class TestCliLanguage(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertEqual(self.client.generate_code.call_args.kwargs["language"], "yaml")
 
+    def test_unified_cli_passes_language_to_test_and_refactor(self):
+        self.client.generate_tests.return_value = ("ok", CompletionResult("x", "m", "E"))
+        self.client.refactor_code.return_value = ("ok", CompletionResult("x", "m", "E"))
+        with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as f:
+            f.write("echo hi\n")
+        self.addCleanup(os.remove, f.name)
+        with (
+            patch("local_coder.cli.UnifiedLocalCoderClient", return_value=self.client),
+            patch.object(sys, "argv", ["ask_coder.py", "test", "--file", f.name, "--language", "bash"]),
+        ):
+            out, _, rc = run(lambda _argv: cli.main(), None)
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.client.generate_tests.call_args.kwargs.get("language"), "bash")
+        with (
+            patch("local_coder.cli.UnifiedLocalCoderClient", return_value=self.client),
+            patch.object(sys, "argv", ["ask_coder.py", "refactor", "--file", f.name, "--language", "yaml"]),
+        ):
+            out, _, rc = run(lambda _argv: cli.main(), None)
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.client.refactor_code.call_args.kwargs.get("language"), "yaml")
+        # defaults to python when --language is omitted
+        with (
+            patch("local_coder.cli.UnifiedLocalCoderClient", return_value=self.client),
+            patch.object(sys, "argv", ["ask_coder.py", "test", "--file", f.name]),
+        ):
+            run(lambda _argv: cli.main(), None)
+        self.assertEqual(self.client.generate_tests.call_args.kwargs.get("language"), "python")
+
+    def test_cli_test_allows_custom_framework_and_non_python_omitted(self):
+        self.client.generate_tests.return_value = ("ok", CompletionResult("x", "m", "E"))
+        with tempfile.NamedTemporaryFile("w", suffix=".go", delete=False) as f:
+            f.write("package main\n")
+        self.addCleanup(os.remove, f.name)
+        with (
+            patch("local_coder.cli.UnifiedLocalCoderClient", return_value=self.client),
+            patch.object(
+                sys, "argv", ["ask_coder.py", "test", "--file", f.name, "--language", "go", "--framework", "testing"]
+            ),
+        ):
+            _, _, rc = run(lambda _argv: cli.main(), None)
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.client.generate_tests.call_args.kwargs.get("framework"), "testing")
+        self.assertEqual(self.client.generate_tests.call_args.kwargs.get("language"), "go")
+
+    def test_legacy_clis_pass_language_to_test_and_refactor(self):
+        self.client.generate_tests.return_value = ("ok", CompletionResult("x", "m", "E"))
+        self.client.refactor_code.return_value = ("ok", CompletionResult("x", "m", "E"))
+        with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as f:
+            f.write("echo hi\n")
+        self.addCleanup(os.remove, f.name)
+        for module in (compat_ollama, compat_foundry):
+            with (
+                self.subTest(module=module.__name__),
+                patch("local_coder.compat_cli.UnifiedLocalCoderClient", return_value=self.client),
+            ):
+                _, _, rc = run(module.cli_main, ["test", "--file", f.name, "--language", "bash"])
+            self.assertEqual(rc, 0)
+            self.assertEqual(self.client.generate_tests.call_args.kwargs.get("language"), "bash")
+            with (
+                self.subTest(module=module.__name__),
+                patch("local_coder.compat_cli.UnifiedLocalCoderClient", return_value=self.client),
+            ):
+                _, _, rc = run(module.cli_main, ["refactor", "--file", f.name, "--language", "yaml"])
+            self.assertEqual(rc, 0)
+            self.assertEqual(self.client.refactor_code.call_args.kwargs.get("language"), "yaml")
+
+    def test_invalid_language_is_a_usage_error_for_test_and_refactor(self):
+        self.client.generate_tests.return_value = ("ok", CompletionResult("x", "m", "E"))
+        self.client.refactor_code.return_value = ("ok", CompletionResult("x", "m", "E"))
+        with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as f:
+            f.write("echo hi\n")
+        self.addCleanup(os.remove, f.name)
+        with (
+            patch("local_coder.cli.UnifiedLocalCoderClient", return_value=self.client),
+            patch.object(sys, "argv", ["ask_coder.py", "test", "--file", f.name, "--language", "bash; rm"]),
+        ):
+            _, err, rc = run(lambda _argv: cli.main(), None)
+        self.assertEqual(rc, 2)
+        self.assertIn("Invalid language", err)
+        with (
+            patch("local_coder.cli.UnifiedLocalCoderClient", return_value=self.client),
+            patch.object(sys, "argv", ["ask_coder.py", "refactor", "--file", f.name, "--language", "bash; rm"]),
+        ):
+            _, err, rc = run(lambda _argv: cli.main(), None)
+        self.assertEqual(rc, 2)
+        self.assertIn("Invalid language", err)
+
 
 class TestMcpLanguage(unittest.TestCase):
-    def test_schema_advertises_language_only_for_local_code(self):
+    def test_schema_advertises_language_for_every_generation_tool(self):
         tools = {t["name"]: t for t in local_coder_mcp_server.handle_list_tools()}
-        self.assertIn("language", tools["local_code"]["inputSchema"]["properties"])
-        self.assertNotIn("language", tools["local_test"]["inputSchema"]["properties"])
+        for tool in ("local_code", "local_test", "local_refactor", "local_code_review"):
+            with self.subTest(tool=tool):
+                self.assertIn(
+                    "language",
+                    tools[tool]["inputSchema"]["properties"],
+                    f"{tool} must advertise a 'language' parameter",
+                )
 
     def test_review_tool_advertises_and_forwards_language(self):
         tools = {t["name"]: t for t in local_coder_mcp_server.handle_list_tools()}
@@ -251,6 +412,40 @@ class TestMcpLanguage(unittest.TestCase):
         with patch.object(local_coder_mcp_server.client, "generate_code", return_value=("x = 1", res)) as gen:
             local_coder_mcp_server.handle_call_tool(3, "local_code", {"task": "t"})
         self.assertEqual(gen.call_args.kwargs["language"], "python")
+
+    def test_test_tool_advertises_and_forwards_language(self):
+        res = CompletionResult("x", "m", "E")
+        with patch.object(local_coder_mcp_server.client, "generate_tests", return_value=("ok", res)) as gen:
+            resp = local_coder_mcp_server.handle_call_tool(
+                1, "local_test", {"code": "x", "file_path": "a.sh", "language": "bash"}
+            )
+        self.assertEqual(gen.call_args.kwargs.get("language"), "bash")
+        self.assertIn("ok", resp["result"]["content"][0]["text"])
+        with patch.object(local_coder_mcp_server.client, "generate_tests", return_value=("ok", res)) as gen:
+            local_coder_mcp_server.handle_call_tool(2, "local_test", {"code": "x", "file_path": "a.sh"})
+        self.assertEqual(gen.call_args.kwargs.get("language"), "python")  # default
+        resp = local_coder_mcp_server.handle_call_tool(
+            3, "local_test", {"code": "x", "file_path": "a.sh", "language": "bash; rm"}
+        )
+        self.assertEqual(resp["error"]["code"], -32603)
+        self.assertIn("Invalid language", resp["error"]["message"])
+
+    def test_refactor_tool_advertises_and_forwards_language(self):
+        res = CompletionResult("x", "m", "E")
+        with patch.object(local_coder_mcp_server.client, "refactor_code", return_value=("ok", res)) as ref:
+            resp = local_coder_mcp_server.handle_call_tool(
+                1, "local_refactor", {"code": "x", "file_path": "a.sh", "language": "yaml"}
+            )
+        self.assertEqual(ref.call_args.kwargs.get("language"), "yaml")
+        self.assertIn("ok", resp["result"]["content"][0]["text"])
+        with patch.object(local_coder_mcp_server.client, "refactor_code", return_value=("ok", res)) as ref:
+            local_coder_mcp_server.handle_call_tool(2, "local_refactor", {"code": "x", "file_path": "a.sh"})
+        self.assertEqual(ref.call_args.kwargs.get("language"), "python")  # default
+        resp = local_coder_mcp_server.handle_call_tool(
+            3, "local_refactor", {"code": "x", "file_path": "a.sh", "language": "bash; rm"}
+        )
+        self.assertEqual(resp["error"]["code"], -32603)
+        self.assertIn("Invalid language", resp["error"]["message"])
 
 
 if __name__ == "__main__":

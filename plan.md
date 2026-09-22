@@ -99,8 +99,10 @@ Status: waiting for the operator's go-ahead to start Prism (never start it witho
 
 ## Phase 4: Optional follow-ups
 
+Status: language support for test and refactor implemented; independent review: 5 of 5 findings addressed (2 major, 2 minor, 1 nit); gate green.
+
 - [ ] Confirm `.cursor/rules/local-coder.mdc` in the Cursor desktop app (only the CLI was checked).
-- [ ] `test` and `refactor` accept `--language` (today Python only).
+- [x] `test` and `refactor` accept `--language` (today Python only).
 - [x] **E2E smoke + `ast.parse` against a real Ollama.**
   Files: `tests/e2e/__init__.py` (empty), `tests/e2e/fixtures/sample_app/math_utils.py` (3-function module:
   `add`, `subtract` (buggy on purpose: `return a + b` instead of `a - b`), `safe_divide` (missing

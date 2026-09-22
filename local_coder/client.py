@@ -473,7 +473,7 @@ class UnifiedLocalCoderClient:
         self,
         source_code: str,
         file_path: str,
-        framework: str = "pytest",
+        framework: str | None = None,
         engine: EngineSpec | None = None,
         model: str | None = None,
         self_heal: bool = True,
@@ -481,10 +481,14 @@ class UnifiedLocalCoderClient:
         temperature: float = 0.1,
         instructions: str | None = None,
         profile: str = "coding",
+        language: str = "python",
     ) -> tuple[str, CompletionResult]:
-        """Generate automated unit tests."""
+        """Generate automated unit tests (language default Python; others skip the AST heal)."""
+        language = normalize_language(language)
+        if framework is None and language == "python":
+            framework = "pytest"
         return self._generate(
-            build_test_prompt(source_code, file_path, framework, instructions),
+            build_test_prompt(source_code, file_path, framework, instructions, language),
             engine=engine,
             profile=profile,
             model=model,
@@ -493,7 +497,8 @@ class UnifiedLocalCoderClient:
             max_tokens=max_tokens,
             temperature=temperature,
             task="test",
-            extra_check=_requires_tests,
+            extra_check=_requires_tests if language == "python" else None,
+            language=language,
         )
 
     def review_code(
@@ -534,10 +539,12 @@ class UnifiedLocalCoderClient:
         temperature: float = 0.1,
         instructions: str | None = None,
         profile: str = "coding",
+        language: str = "python",
     ) -> tuple[str, CompletionResult]:
-        """Refactor code with strict type hints and docstrings."""
+        """Refactor code with strict type hints and docstrings (language default Python)."""
+        language = normalize_language(language)
         return self._generate(
-            build_refactor_prompt(source_code, file_path, type_hints, docstrings, instructions),
+            build_refactor_prompt(source_code, file_path, type_hints, docstrings, instructions, language),
             engine=engine,
             profile=profile,
             model=model,
@@ -546,4 +553,5 @@ class UnifiedLocalCoderClient:
             max_tokens=max_tokens,
             temperature=temperature,
             task="refactor",
+            language=language,
         )

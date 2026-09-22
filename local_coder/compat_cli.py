@@ -71,8 +71,14 @@ def build_parser(flavor: Flavor) -> argparse.ArgumentParser:
 
     p_test = sub.add_parser("test", help="Generate unit tests for a source file")
     p_test.add_argument("--file", required=True, help="Target source file to test")
-    p_test.add_argument("--framework", choices=["pytest", "unittest"], default="pytest", help="Testing framework")
+    p_test.add_argument("--framework", default=None, help="Testing framework (default: pytest for Python)")
     p_test.add_argument("--task", help="Additional test instructions or edge cases to target")
+    p_test.add_argument(
+        "--language",
+        type=_language,
+        default="python",
+        help="Language of the source file (default python; AST self-heal is Python-only)",
+    )
     common(p_test)
 
     p_review = sub.add_parser("review", help="Review code for bugs, race conditions, and security")
@@ -88,6 +94,12 @@ def build_parser(flavor: Flavor) -> argparse.ArgumentParser:
     p_refactor.add_argument("--type-hints", action="store_true", help="Add strict type annotations")
     p_refactor.add_argument("--docstrings", action="store_true", help="Add comprehensive docstrings")
     p_refactor.add_argument("--task", help="Specific refactoring directions")
+    p_refactor.add_argument(
+        "--language",
+        type=_language,
+        default="python",
+        help="Language of the source file (default python; PEP 484 / PEP 257 are Python-only)",
+    )
     common(p_refactor)
 
     if flavor.status:
@@ -187,6 +199,7 @@ def run(flavor: Flavor, argv: list[str] | None = None) -> None:
                 instructions=args.task,
                 profile=args.profile,
                 self_heal=heal,
+                language=args.language,
                 **common,
             )
             _emit(flavor, code, res, args, "unit tests")
@@ -209,6 +222,7 @@ def run(flavor: Flavor, argv: list[str] | None = None) -> None:
                 instructions=args.task,
                 profile=args.profile,
                 self_heal=heal,
+                language=args.language,
                 **common,
             )
             _emit(flavor, code, res, args, "refactored code")

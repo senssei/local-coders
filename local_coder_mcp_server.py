@@ -80,9 +80,15 @@ def handle_list_tools() -> list[dict]:
                     },
                     "framework": {
                         "type": "string",
-                        "enum": ["pytest", "unittest"],
-                        "default": "pytest",
-                        "description": "Testing framework.",
+                        "description": "Testing framework (default: pytest for Python).",
+                    },
+                    "language": {
+                        "type": "string",
+                        "default": "python",
+                        "description": (
+                            "Language of the source file (default python). AST self-heal is Python-only; "
+                            "non-Python output is returned unchecked."
+                        ),
                     },
                     "engine": {
                         "type": "string",
@@ -140,6 +146,14 @@ def handle_list_tools() -> list[dict]:
                     "file_path": {"type": "string", "default": "module.py"},
                     "type_hints": {"type": "boolean", "default": True},
                     "docstrings": {"type": "boolean", "default": True},
+                    "language": {
+                        "type": "string",
+                        "default": "python",
+                        "description": (
+                            "Language of the source file (default python). PEP 484 / PEP 257 directives are "
+                            "skipped for non-Python; output is returned unchecked."
+                        ),
+                    },
                     "engine": {
                         "type": "string",
                         "enum": ["auto", "prism", "ollama", "foundry"],
@@ -203,10 +217,11 @@ def _call_tool(tool_name: str, arguments: dict) -> str:
         code, res = client.generate_tests(
             source_code=arguments.get("code", ""),
             file_path=arguments.get("file_path", "module.py"),
-            framework=arguments.get("framework", "pytest"),
+            framework=arguments.get("framework"),
             engine=engine,
             self_heal=True,
             max_tokens=max_tokens,
+            language=arguments.get("language", "python"),
         )
         return f"{code}\n\n{format_result_banner(res, max_tokens)}"
 
@@ -227,6 +242,7 @@ def _call_tool(tool_name: str, arguments: dict) -> str:
             file_path=arguments.get("file_path", "module.py"),
             type_hints=arguments.get("type_hints", True),
             docstrings=arguments.get("docstrings", True),
+            language=arguments.get("language", "python"),
             engine=engine,
             self_heal=True,
             max_tokens=max_tokens,

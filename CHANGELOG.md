@@ -26,6 +26,10 @@ All user-visible changes. Format: [Keep a Changelog](https://keepachangelog.com/
   and retry-on-truncation (`_complete_extendable`). The fake's API shape is pinned by `import prism` from
   `../03-foundy-local` — if the live reference cannot be imported the suite errors loudly rather than
   silently passing.
+- `test` and `refactor` also take `--language` (CLI) and `language` (MCP `local_test` / `local_refactor`).
+  Defaults to Python; non-Python output skips the AST self-heal and the PEP 484 / PEP 257 directives.
+  `test` accepts any `--framework` (e.g. `bats`, `jest`, `testing`) rather than restricting to `pytest`/`unittest`.
+  Symmetric with `code` and `review`.
 
 ### Changed
 - AUTO routing tries Ollama first (Prism only through a `prefer` rule); explicit `*coder*` model names avoid Prism.

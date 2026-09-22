@@ -56,8 +56,14 @@ def main() -> None:
 
     # Test subcommand
     test_p = subparsers.add_parser("test", parents=[common], help="Generate unit tests for existing source file")
-    test_p.add_argument("--file", required=True, help="Path to Python file under test")
-    test_p.add_argument("--framework", choices=["pytest", "unittest"], default="pytest")
+    test_p.add_argument("--file", required=True, help="Path to file under test")
+    test_p.add_argument("--framework", default=None, help="Testing framework (default: pytest for Python)")
+    test_p.add_argument(
+        "--language",
+        type=_language,
+        default="python",
+        help="Language of the source file (default python; AST self-heal is Python-only)",
+    )
     test_p.add_argument("--model", help="Explicit model name")
     test_p.add_argument("--output", help="Save generated tests to specified file")
     test_p.add_argument("--no-heal", action="store_true", help="Disable AST syntax self-healing")
@@ -87,6 +93,12 @@ def main() -> None:
     )
     ref_p.add_argument(
         "--docstrings", action=argparse.BooleanOptionalAction, default=True, help="Add PEP 257 docstrings"
+    )
+    ref_p.add_argument(
+        "--language",
+        type=_language,
+        default="python",
+        help="Language of the source file (default python; PEP 484 / PEP 257 directives are Python-only)",
     )
     ref_p.add_argument("--model", help="Explicit model name")
     ref_p.add_argument("--output", help="Save refactored code to specified file")
@@ -174,6 +186,7 @@ def main() -> None:
                 model=args.model,
                 self_heal=not args.no_heal,
                 max_tokens=args.max_tokens,
+                language=args.language,
             )
             print(format_result_banner(res, args.max_tokens), file=sys.stderr)
             write_out(code, args.output)
@@ -203,6 +216,7 @@ def main() -> None:
                 model=args.model,
                 self_heal=not args.no_heal,
                 max_tokens=args.max_tokens,
+                language=args.language,
             )
             print(format_result_banner(res, args.max_tokens), file=sys.stderr)
             write_out(code, args.output)

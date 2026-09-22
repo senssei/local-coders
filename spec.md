@@ -23,8 +23,10 @@ Changing one of these is an operator gate (`AGENTS.md`).
 - **Engine order (AUTO).** Ollama first, then Prism, then Foundry Local on Linux/WSL2; Ollama, Foundry Local, Prism on macOS. A
   built-in rule keeps explicit `*coder*` model names off Prism. Rules come from `.local-coder/routing.json`, then
   `~/.config/local-coders/routing.json`, then built-ins (`docs/ROUTING.md`). A failing engine cools down for 30 s.
-- **Generation.** `code` and `review` take `--language` (review guesses it from the file extension); `test` and `refactor` are
-  Python only. Ollama uses the native `/api/chat` with `num_ctx` at least 8192. Default `--max-tokens` is 4096, doubled once on
+- **Generation.** All four subcommands take `--language` (CLI and the corresponding MCP tool's `language`
+  parameter); `review` guesses it from the file extension when omitted, the others default to Python. The
+  Python AST self-heal is the only validation; non-Python output is returned unchecked. Ollama uses the
+  native `/api/chat` with `num_ctx` at least 8192. Default `--max-tokens` is 4096, doubled once on
   truncation; an explicit value is respected.
 - **Telemetry.** Tokens from healing rounds are counted; the reference price is 3/15 USD per million tokens
   (`LOCAL_CODER_PRICE_*`).

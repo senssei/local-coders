@@ -27,10 +27,10 @@ The repository provides modular and unified stdio MCP servers:
 ### 🌟 Unified Server Tools (`local-coder` - Recommended)
 | Tool | Parameters | Description |
 | :--- | :--- | :--- |
-| **`local_code`** | `task` *(str)*, `context_code` *(opt str)*, `engine` *(opt str)*, `profile` *(opt str)*, `model` *(opt str)*, `max_tokens` *(opt int)* | Generates Python code with AST self-healing, routing across Prism, Ollama, or Foundry. |
-| **`local_test`** | `code` *(str)*, `file_path` *(opt str)*, `framework` *(opt str)*, `engine` *(opt str)*, `max_tokens` *(opt int)* | Authors comprehensive unit tests (`pytest` or `unittest`) with edge cases and mocks. |
+| **`local_code`** | `task` *(str)*, `context_code` *(opt str)*, `language` *(opt str)*, `engine` *(opt str)*, `profile` *(opt str)*, `model` *(opt str)*, `max_tokens` *(opt int)* | Generates code with optional AST self-healing for Python, routing across Prism, Ollama, or Foundry. |
+| **`local_test`** | `code` *(str)*, `file_path` *(opt str)*, `framework` *(opt str)*, `language` *(opt str)*, `engine` *(opt str)*, `max_tokens` *(opt int)* | Authors comprehensive unit tests (`pytest` default for Python) with edge cases and mocks. |
 | **`local_code_review`** | `code` *(str)*, `file_path` *(opt str)*, `focus` *(opt str)*, `language` *(opt str; default: guessed from `file_path`)*, `engine` *(opt str)*, `max_tokens` *(opt int)* | Audits code for security vulnerabilities, race conditions, and performance bottlenecks. |
-| **`local_refactor`** | `code` *(str)*, `file_path` *(opt str)*, `type_hints` *(opt bool)*, `docstrings` *(opt bool)*, `engine` *(opt str)*, `max_tokens` *(opt int)* | Injects strict type annotations (`typing`) and PEP 257 docstrings. |
+| **`local_refactor`** | `code` *(str)*, `file_path` *(opt str)*, `type_hints` *(opt bool)*, `docstrings` *(opt bool)*, `language` *(opt str)*, `engine` *(opt str)*, `max_tokens` *(opt int)* | Injects strict type annotations (`typing`) and PEP 257 docstrings for Python; refactors other languages. |
 | **`local_status`** | `explain` *(opt bool)* | Reports hardware, engines, endpoints and latency; `explain` adds the active [routing rules](ROUTING.md). |
 | **`local_perf`** | *None* | Latest call (engine, model, tokens/s) and today's totals; the data behind the [status line](STATUSLINE.md). |
 | **`list_local_models`** | *None* | Discovers and aggregates all installed models across Prism, Ollama, and Foundry. |
